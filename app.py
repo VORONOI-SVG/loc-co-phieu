@@ -179,11 +179,10 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                             
                             # Xác định màu sắc chuẩn động lượng
                             if val >= 0:
-                                col = '#00c853' if val >= prev_val else '#a5d6a7' # Xanh đậm / Xanh nhạt
+                                col = '#00c853' if val >= prev_val else '#a5d6a7' 
                             else:
-                                col = '#d50000' if val <= prev_val else '#ef9a9a' # Đỏ đậm / Đỏ nhạt
+                                col = '#d50000' if val <= prev_val else '#ef9a9a' 
                                 
-                            # Vẽ từng sọc dọc mảnh kết nối từ trục 0 đến đỉnh sóng
                             fig.add_trace(go.Scatter(
                                 x=[idx, idx], y=[0, val],
                                 mode='lines',
@@ -229,10 +228,13 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                         
                         # Thiết lập cấu hình hệ thống Đa trục cân bằng đồng bộ TradingView
                         fig.update_layout(
-                            title=f"📊 Hệ thống KT2 Multi: **{ticker}**",
+                            title=dict(
+                                text=f"📊 {ticker}", # Chỉ hiện icon và Tên mã chứng khoán viết hoa
+                                font=dict(size=18, color='#ffffff', weight='bold') # Làm font chữ to rõ ràng hơn
+                            ),
                             template="plotly_dark",
                             height=360,
-                            margin=dict(l=40, r=40, t=40, b=20),
+                            margin=dict(l=40, r=40, t=50, b=20), # Tăng lề trên một chút để thoáng chữ
                             showlegend=False,
                             xaxis=dict(showgrid=False),
                             yaxis=dict(
@@ -249,7 +251,8 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                                 showgrid=False
                             )
                         )
-                        st.plotly_chart(fig, use_container_width=True)
+                        # ĐẨY CẤU HÌNH CONFIG: Ẩn thanh công cụ hover để không bị đè chữ trên Điện thoại
+                        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': 'hover'})
             else:
                 st.info("Hiện tại chưa tìm thấy mã nào bùng nổ thỏa mãn chấm tín hiệu xanh.")
         else:
