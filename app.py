@@ -1,8 +1,7 @@
 import streamlit as st
 import pandas as pd
-# Sử dụng đúng cấu trúc gọi hàm ohlcv của vnstock phiên bản mới nhất
-from vnstock import Market
 import ta
+import requests
 from datetime import datetime
 
 # Cấu hình giao diện gọn gàng cho điện thoại
@@ -23,38 +22,44 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
     with st.spinner("Đang kết nối dữ liệu sàn chứng khoán..."):
         results = []
         
-        # Tự động lấy ngày hôm nay (Năm hiện tại là 2026)
-        current_date = datetime.now().strftime('%Y-%m-%d')
-        
-        try:
-            # Khởi tạo đối tượng kết nối thị trường của bản mới
-            market = Market()
-        except Exception as e:
-            st.error("Không thể khởi tạo cổng kết nối dữ liệu. Vui lòng thử lại.")
-            st.stop()
-        
         for ticker in symbols:
             try:
-                # Cú pháp lấy dữ liệu chuẩn xác của bản vnstock 4.x
-                df = market.equity.ohlcv(symbol=ticker, start='2026-01-01', end=current_date)
+                # Gọi trực tiếp dữ liệu lịch sử thông qua API công khai
+                url = f"https://api.simplize.vn/api/company/historical-price/{ticker}"
+                params = {
+                    "page": 1,
+                    "size": 50, # Lấy 50 phiên gần nhất là đủ tính RSI và MA20
+                    "isAll": "false"
+                }
+                headers = {'User-Agent': 'Mozilla/5.0'}
+                response = requests.get(url, params=params, headers=headers)
                 
-                # Kiểm tra nếu dữ liệu rỗng
-                if df is None or df.empty or 'close' not in df.columns:
-                    continue
-                
-                # Tính RSI và MA20
-                df['RSI'] = ta.momentum.rsi(df['close'], window=14)
-                df['MA20'] = ta.trend.sma_indicator(df['close'], window=20)
-                
-                # Lấy dòng dữ liệu mới nhất
-                latest = df.iloc[-1]
-                
-                results.append({
-                    "Mã CP": ticker,
-                    "Giá Đóng": latest['close'],
-                    "RSI": round(latest['RSI'], 2) if not pd.isna(latest['RSI']) else 0,
-                    "MA20": round(latest['MA20'], 2) if not pd.isna(latest['MA20']) else 0
-                })
+                if response.status_code == 200:
+                    data = response.json().get('data', {}).get('items', [])
+                    if not data:
+                        continue
+                        
+                    # Chuyển đổi thành bảng dữ liệu
+                    df = pd.DataFrame(data)
+                    # Sắp xếp lại ngày từ cũ đến mới để tính chỉ báo chính xác
+                    df = df.iloc[::-1].reset_index(drop=True)
+                    
+                    # Đổi tên cột cho đúng chuẩn tính toán
+                    df['close'] = df['closePrice']
+                    
+                    # Tính RSI và MA20
+                    df['RSI'] = ta.momentum.rsi(df['close'], window=14)
+                    df['MA20'] = ta.trend.sma_indicator(df['close'], window=20)
+                    
+                    # Lấy dòng dữ liệu mới nhất (phiên gần đây nhất)
+                    latest = df.iloc[-1]
+                    
+                    results.append({
+                        "Mã CP": ticker,
+                        "Giá Đóng": latest['close'],
+                        "RSI": round(latest['RSI'], 2) if not pd.isna(latest['RSI']) else 0,
+                        "MA20": round(latest['MA20'], 2) if not pd.isna(latest['MA20']) else 0
+                    })
             except:
                 continue
 
@@ -89,4 +94,4 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                 else:
                     st.info("Không có cổ phiếu nào nằm trên đường MA20.")
         else:
-            st.error("Hệ thống chưa nhận được dữ liệu. Bạn vui lòng bấm lại nút Quét dữ liệu sau vài giây nhé.")
+            st.error("Hệ thống chưa nhận được dữ liệu. Bạn vui lòng thử lại sau vài giây nhé.")
