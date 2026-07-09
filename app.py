@@ -228,15 +228,13 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                         
                         # Thiết lập cấu hình hệ thống Đa trục tối ưu hoàn hảo cho NỀN TRẮNG (Light Mode)
                         fig.update_layout(
-                            title=dict(
-                                text=f"📊 <b>{ticker}</b>", # Dùng thẻ <b> thay cho thuộc tính weight bị lỗi
-                                font=dict(size=20, color='#000000') # Chữ ĐEN trên nền trắng
-                            ),
+                            title_text=f"📊 <b>{ticker}</b>", # Định nghĩa tiêu đề trực tiếp
+                            title_font=dict(size=22, color='#000000'), # Định nghĩa font chữ riêng biệt theo chuẩn cú pháp Plotly
                             template="plotly_white", 
                             paper_bgcolor='rgba(0,0,0,0)', 
                             plot_bgcolor='rgba(0,0,0,0)',
                             height=360,
-                            margin=dict(l=40, r=40, t=50, b=20), 
+                            margin=dict(l=40, r=40, t=60, b=20), 
                             showlegend=False,
                             xaxis=dict(
                                 showgrid=False,
