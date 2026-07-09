@@ -177,7 +177,7 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                             prev_val = vortex_vals[i-1] if i > 0 else 0
                             idx = chart_data.index[i]
                             
-                            # Xác định màu sắc chuẩn động lượng (Sử dụng màu tối hơn một chút cho nền trắng)
+                            # Xác định màu sắc chuẩn động lượng
                             if val >= 0:
                                 col = '#00aa3c' if val >= prev_val else '#81c784' 
                             else:
@@ -229,25 +229,25 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                         # Thiết lập cấu hình hệ thống Đa trục tối ưu hoàn hảo cho NỀN TRẮNG (Light Mode)
                         fig.update_layout(
                             title=dict(
-                                text=f"📊 {ticker}", 
-                                font=dict(size=20, color='#000000', weight='bold') # Chuyển hẳn chữ sang ĐEN TUYỆT ĐỐI
+                                text=f"📊 <b>{ticker}</b>", # Dùng thẻ <b> thay cho thuộc tính weight bị lỗi
+                                font=dict(size=20, color='#000000') # Chữ ĐEN trên nền trắng
                             ),
-                            template="plotly_white", # Đổi mẫu giao diện sang nền Sáng gốc
-                            paper_bgcolor='rgba(0,0,0,0)', # Trong suốt lớp viền ngoài để tiệp với nền Streamlit
+                            template="plotly_white", 
+                            paper_bgcolor='rgba(0,0,0,0)', 
                             plot_bgcolor='rgba(0,0,0,0)',
                             height=360,
                             margin=dict(l=40, r=40, t=50, b=20), 
                             showlegend=False,
                             xaxis=dict(
                                 showgrid=False,
-                                tickfont=dict(color='#333333') # Chữ ngày tháng màu xám đậm dễ đọc
+                                tickfont=dict(color='#333333')
                             ),
                             yaxis=dict(
                                 title="Vortex Pulse",
                                 titlefont=dict(color='#000000'),
                                 side="left",
                                 showgrid=True,
-                                gridcolor='rgba(0,0,0,0.05)', # Lưới xám siêu mờ tương phản tốt trên nền trắng
+                                gridcolor='rgba(0,0,0,0.05)',
                                 tickfont=dict(color='#333333')
                             ),
                             yaxis2=dict(
