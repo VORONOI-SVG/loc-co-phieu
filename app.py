@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
 from vnstock import Market
-import pandas_ta as ta
+# Thay đổi thư viện tính toán ở đây để tránh lỗi hệ thống
+import ta
 
 # Cấu hình giao diện gọn gàng cho điện thoại
 st.set_page_config(page_title="Bộ Lọc Cổ Phiếu", layout="centered")
@@ -9,7 +10,7 @@ st.set_page_config(page_title="Bộ Lọc Cổ Phiếu", layout="centered")
 st.title("📊 Bộ Lọc Cổ Phiếu Việt Nam")
 st.write("Ứng dụng chạy trên mọi thiết bị (PC / Điện thoại)")
 
-# Danh sách các mã cổ phiếu phổ biến (Bạn có thể thêm bớt tùy ý, viết hoa)
+# Danh sách các mã cổ phiếu phổ biến
 symbols = ['FPT', 'SSI', 'VNM', 'HPG', 'VIC', 'VCB', 'TCB', 'MWG', 'DGC', 'STB']
 
 # Giao diện tùy chỉnh bên góc màn hình
@@ -24,14 +25,14 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
         
         for ticker in symbols:
             try:
-                # Tải dữ liệu lịch sử từ đầu năm 2026 đến nay
+                # Tải dữ liệu lịch sử
                 df = market.equity.ohlcv(symbol=ticker, start='2026-01-01', end='2026-07-09')
                 if df.empty:
                     continue
                 
-                # Tính RSI và MA20
-                df['RSI'] = ta.rsi(df['close'], length=14)
-                df['MA20'] = ta.sma(df['close'], length=20)
+                # Tính RSI và MA20 bằng thư viện 'ta' mới để không bị lỗi build wheel
+                df['RSI'] = ta.momentum.rsi(df['close'], window=14)
+                df['MA20'] = ta.trend.sma_indicator(df['close'], window=20)
                 
                 # Lấy dòng dữ liệu mới nhất (ngày hôm nay)
                 latest = df.iloc[-1]
