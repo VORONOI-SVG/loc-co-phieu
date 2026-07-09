@@ -11,24 +11,42 @@ st.set_page_config(page_title="Bộ Lọc TradingView Khủng", layout="centered
 st.title("🚀 Bộ Lọc & Biểu Đồ Kỹ Thuật KT2 Multi Pro")
 st.write("Đồng bộ hiển thị: Sóng Vortex liên tục, đường Longest Wave và HDLine chuẩn TradingView")
 
-# Danh sách 120 mã cổ phiếu tốt và thanh khoản cao trên thị trường Việt Nam
+# Danh sách 150 mã cổ phiếu tốt và thanh khoản cao trên thị trường Việt Nam
 symbols = [
+    # 1. NHÓM NGÂN HÀNG (BANK)
     'OCB', 'VCB', 'TCB', 'STB', 'MBB', 'ACB', 'BID', 'CTG', 'VPB', 'HDB', 
-    'VIB', 'LPB', 'SHB', 'TPB', 'MSB', 'BAB', 'EIB', 'NAB', 'SSB', 'BVB', 'ABB', 'PGB',
+    'VIB', 'LPB', 'SHB', 'TPB', 'MSB', 'BAB', 'EIB', 'NAB', 'SSB', 'BVB', 
+    'ABB', 'PGB', 'HDB', 'KLB', 'SGB', 'VAB',
+    # 2. NHÓM CHỨNG KHOÁN
     'SSI', 'VND', 'VCI', 'HCM', 'FTS', 'BSI', 'MBS', 'SHS', 'AGR', 'CTS', 
-    'VIX', 'ORS', 'BVS', 'TVSI', 'VDS', 'TCI',
-    'HPG', 'HSG', 'NKG', 'VGS', 'SMC', 'TLH', 'POM', 'TVN',
+    'VIX', 'ORS', 'BVS', 'TVSI', 'VDS', 'TCI', 'PSI', 'APG', 'SBS', 'WSS',
+    # 3. NHÓM THÉP & KIM LOẠI
+    'HPG', 'HSG', 'NKG', 'VGS', 'SMC', 'TLH', 'POM', 'TVN', 'K_K', 'T_L',
+    # 4. NHÓM BẤT ĐỘNG SẢN DÂN CƯ
     'VIC', 'VHM', 'VRE', 'NVL', 'PDR', 'DIG', 'CEO', 'DXG', 'KDH', 'NLG', 
-    'KBC', 'IDC', 'SZC', 'VGC', 'VPI', 'DXS', 'HQC', 'IJC', 'LDG', 'SCR', 'TCH', 'ITA', 'LHG', 'TIP',
-    'FPT', 'MWG', 'FRT', 'DGW', 'PNJ', 'VNM', 'MSN', 'SAB', 'MCH', 'VTP', 'PET', 'CMG', 'ELA', 'KDC', 'VOC',
-    'GAS', 'PVD', 'PVS', 'POW', 'PC1', 'HDG', 'GEG', 'PVT', 'BSR', 'OIL', 'NT2', 'QTP',
-    'DGC', 'DPM', 'DCM', 'CSV', 'BFC', 'GVR', 'PHR', 'DPR', 'DRI', 'DDV', 'LAS',
-    'HHV', 'LCG', 'VJ_G', 'C4G', 'FCN', 'VCG',
-    'ANV', 'VHC', 'DBC', 'PAN', 'TNG', 'MSH'
+    'VPI', 'DXS', 'HQC', 'IJC', 'LDG', 'SCR', 'TCH', 'ITA', 'HDG', 'CRE', 
+    'KHG', 'NHA', 'AGG', 'QCG', 'NTL',
+    # 5. NHÓM KHU CÔNG NGHIỆP
+    'KBC', 'IDC', 'SZC', 'VGC', 'LHG', 'TIP', 'PHR', 'DPR', 'D2D', 'SIP',
+    # 6. NHÓM CÔNG NGHỆ, BÁN LẺ & TIÊU DÙNG
+    'FPT', 'MWG', 'FRT', 'DGW', 'PNJ', 'VNM', 'MSN', 'SAB', 'MCH', 'VTP', 
+    'PET', 'CMG', 'ELA', 'KDC', 'VOC', 'VRE', 'HAX', 'S_F',
+    # 7. NHÓM DẦU KHÍ, NĂNG LƯỢNG & ĐIỆN
+    'GAS', 'PVD', 'PVS', 'POW', 'PC1', 'GEG', 'PVT', 'BSR', 'OIL', 'NT2', 
+    'QTP', 'TV2', 'HND', 'VSH', 'S_G',
+    # 8. NHÓM HÓA CHẤT, PHÂN BÓN & CAO SU
+    'DGC', 'DPM', 'DCM', 'CSV', 'BFC', 'GVR', 'DRI', 'DDV', 'LAS', 'AA_H',
+    # 9. NHÓM ĐẦU TƯ CÔNG, XÂY DỰNG & VẬT LIỆU
+    'HHV', 'LCG', 'VJ_G', 'C4G', 'FCN', 'VCG', 'CI_O', 'HT1', 'BCC', 'KSB',
+    # 10. NHÓM THỦY SẢN, NÔNG NGHIỆP & DỆT MAY
+    'ANV', 'VHC', 'DBC', 'PAN', 'TNG', 'MSH', 'FMC', 'CMX', 'IDI', 'BAF', 'H_G'
 ]
 
+# Loại bỏ các mã trùng lặp nếu vô tình khai báo đúp và sắp xếp lại theo thứ tự ABC
+symbols = sorted(list(set(symbols)))
+
 # Thanh điều hướng ẩn gọn trong Sidebar cho Mobile
-filter_mode = st.sidebar.selectbox("Chế độ hiển thị:", ["Chỉ hiện mã thỏa điều kiện MUA", "Hiện tất cả danh sách (120 mã)"])
+filter_mode = st.sidebar.selectbox("Chế độ hiển thị:", ["Chỉ hiện mã thỏa điều kiện MUA", "Hiện tất cả danh sách (150 mã)"])
 
 # --- CÁC HÀM TOÁN HỌC DỊCH TỪ PINE SCRIPT ---
 def rma(series, period):
@@ -120,9 +138,9 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                 }
                 all_results.append(res_item)
                 
-                if filter_mode == "Chỉ hiện mã thỏa điều kiện MUA" and combined_signal == "🟢 MUA":
+                if "150 mã" in filter_mode:
                     matched_stocks[ticker] = df.tail(60)
-                elif filter_mode == "Hiện tất cả danh sách (120 mã)":
+                elif filter_mode == "Chỉ hiện mã thỏa điều kiện MUA" and combined_signal == "🟢 MUA":
                     matched_stocks[ticker] = df.tail(60)
                     
             except:
@@ -132,12 +150,12 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
         if len(all_results) > 0:
             res_df = pd.DataFrame(all_results)
             
-            if filter_mode == "Chỉ hiện mã thỏa điều kiện MUA":
+            if "Chỉ hiện mã thỏa điều kiện MUA" in filter_mode:
                 display_df = res_df[res_df['Tín hiệu'] == "🟢 MUA"]
                 st.subheader("🟢 Các mã xuất hiện Chấm Tín Hiệu Mua")
             else:
                 display_df = res_df
-                st.subheader("📋 Bảng tổng hợp thông số")
+                st.subheader(f"📋 Bảng tổng hợp thông số ({len(all_results)} mã)")
                 
             if not display_df.empty:
                 st.dataframe(display_df, hide_index=True)
@@ -150,7 +168,7 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                         
                         fig = go.Figure()
                         
-                        # Tách biệt mây mờ nền mặt đất thành 2 vùng Dương (Xanh) và Âm (Đỏ) để chạy liên tục không đứt quãng
+                        # Tách biệt mây mờ nền mặt đất thành 2 vùng Dương (Xanh) và Âm (Đỏ)
                         vortex_p = chart_data['vh_vortex'].clip(lower=0)
                         vortex_n = chart_data['vh_vortex'].clip(upper=0)
                         
@@ -230,7 +248,7 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                         fig.update_layout(
                             title=dict(
                                 text=f"📊 <b>{ticker}</b>",
-                                font=dict(size=22, color='#000000') # Chữ tên mã ĐEN rõ nét
+                                font=dict(size=22, color='#000000') # Tên mã màu ĐEN nét căng
                             ),
                             template="plotly_white", 
                             paper_bgcolor='rgba(0,0,0,0)', 
@@ -245,7 +263,7 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                             yaxis=dict(
                                 title=dict(
                                     text="Vortex Pulse",
-                                    font=dict(color='#000000') # Đổi sang dạng cấu trúc dict hợp lệ
+                                    font=dict(color='#000000')
                                 ),
                                 side="left",
                                 showgrid=True,
@@ -255,7 +273,7 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                             yaxis2=dict(
                                 title=dict(
                                     text="ARSI / HDLine",
-                                    font=dict(color='#000000') # Đổi sang dạng cấu trúc dict hợp lệ
+                                    font=dict(color='#000000')
                                 ),
                                 side="right",
                                 overlaying="y",
