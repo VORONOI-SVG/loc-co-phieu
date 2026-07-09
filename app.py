@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
-from vnstock import stock_historical_data
+# Sửa cách import phù hợp 100% với phiên bản vnstock 4.x trên máy chủ của bạn
+from vnstock import Vnstock
 import ta
 from datetime import datetime
 
@@ -22,13 +23,20 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
     with st.spinner("Đang kết nối dữ liệu sàn chứng khoán..."):
         results = []
         
-        # Tự động lấy ngày hôm nay
+        # Tự động lấy ngày hôm nay (Năm hiện tại là 2026)
         current_date = datetime.now().strftime('%Y-%m-%d')
+        
+        try:
+            # Khởi tạo đối tượng Vnstock theo đúng chuẩn bản 4.x
+            stock = Vnstock()
+        except Exception as e:
+            st.error(f"Không thể khởi tạo nguồn dữ liệu: {e}")
+            st.stop()
         
         for ticker in symbols:
             try:
-                # Hàm lấy dữ liệu lịch sử phiên bản gốc
-                df = stock_historical_data(symbol=ticker, start_date='2026-01-01', end_date=current_date, resolution='1D')
+                # Gọi hàm lấy dữ liệu lịch sử thông qua đối tượng 'stock' của bản 4.x
+                df = stock.stock_historical_data(symbol=ticker, start_date='2026-01-01', end_date=current_date, resolution='1D')
                 
                 # Kiểm tra nếu dữ liệu rỗng
                 if df is None or df.empty or 'close' not in df.columns:
@@ -81,4 +89,4 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                 else:
                     st.info("Không có cổ phiếu nào nằm trên đường MA20.")
         else:
-            st.error("Hệ thống chưa nhận được dữ liệu. Bạn vui lòng đợi vài giây rồi bấm lại nút Quét dữ liệu nhé.")
+            st.error("Hệ thống chưa nhận được dữ liệu từ các công ty chứng khoán. Bạn vui lòng bấm lại nút quét sau vài giây nhé.")
