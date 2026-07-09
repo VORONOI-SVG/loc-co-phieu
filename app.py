@@ -158,7 +158,7 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                         fig.add_trace(go.Scatter(
                             x=chart_data.index, y=vortex_p,
                             mode='lines', line=dict(width=0),
-                            fill='tozeroy', fillcolor='rgba(0, 200, 100, 0.08)',
+                            fill='tozeroy', fillcolor='rgba(0, 180, 50, 0.08)',
                             name='Mây Mua', yaxis='y1'
                         ))
                         
@@ -166,7 +166,7 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                         fig.add_trace(go.Scatter(
                             x=chart_data.index, y=vortex_n,
                             mode='lines', line=dict(width=0),
-                            fill='tozeroy', fillcolor='rgba(255, 51, 51, 0.08)',
+                            fill='tozeroy', fillcolor='rgba(230, 30, 30, 0.08)',
                             name='Mây Bán', yaxis='y1'
                         ))
                         
@@ -177,11 +177,11 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                             prev_val = vortex_vals[i-1] if i > 0 else 0
                             idx = chart_data.index[i]
                             
-                            # Xác định màu sắc chuẩn động lượng
+                            # Xác định màu sắc chuẩn động lượng (Sử dụng màu tối hơn một chút cho nền trắng)
                             if val >= 0:
-                                col = '#00c853' if val >= prev_val else '#a5d6a7' 
+                                col = '#00aa3c' if val >= prev_val else '#81c784' 
                             else:
-                                col = '#d50000' if val <= prev_val else '#ef9a9a' 
+                                col = '#b71c1c' if val <= prev_val else '#e57373' 
                                 
                             fig.add_trace(go.Scatter(
                                 x=[idx, idx], y=[0, val],
@@ -190,24 +190,24 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                                 hoverinfo='skip', showlegend=False, yaxis='y1'
                             ))
                         
-                        # 4. Vẽ đường LONGEST WAVE uốn lượn liên tục sắc nét (Màu Xanh Cyan gốc)
+                        # 4. Vẽ đường LONGEST WAVE màu Xanh Cyan đậm nét dễ nhìn trên nền trắng
                         fig.add_trace(go.Scatter(
                             x=chart_data.index, y=chart_data['longest_wave'],
-                            mode='lines', line=dict(color='#00e5ff', width=2, dash='solid'),
+                            mode='lines', line=dict(color='#00b8d4', width=2, dash='solid'),
                             name='Longest Wave', yaxis='y1'
                         ))
                         
                         # 5. Vẽ đường AUGMENTED RSI màu cam rực rỡ
                         fig.add_trace(go.Scatter(
                             x=chart_data.index, y=chart_data['arsi'],
-                            mode='lines', line=dict(color='#ff9900', width=2),
+                            mode='lines', line=dict(color='#ff8f00', width=2),
                             name='Augmented RSI', yaxis='y2'
                         ))
                         
-                        # 6. Vẽ đường HDLINE giữ đỉnh màu hồng/tím nhạt
+                        # 6. Vẽ đường HDLINE giữ đỉnh màu hồng/tím đậm
                         fig.add_trace(go.Scatter(
                             x=chart_data.index, y=chart_data['hdline'],
-                            mode='lines', line=dict(color='#e040fb', width=1.5),
+                            mode='lines', line=dict(color='#c51162', width=1.5),
                             name='HDLine', yaxis='y2'
                         ))
                         
@@ -222,36 +222,44 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                         if sig_x:
                             fig.add_trace(go.Scatter(
                                 x=sig_x, y=sig_y,
-                                mode='markers', marker=dict(color='#00ff66', size=9, symbol='circle'),
+                                mode='markers', marker=dict(color='#00e676', size=9, symbol='circle'),
                                 name='Chấm Mua', yaxis='y2'
                             ))
                         
-                        # Thiết lập cấu hình hệ thống Đa trục cân bằng đồng bộ TradingView
+                        # Thiết lập cấu hình hệ thống Đa trục tối ưu hoàn hảo cho NỀN TRẮNG (Light Mode)
                         fig.update_layout(
                             title=dict(
-                                text=f"📊 {ticker}", # Chỉ hiện icon và Tên mã chứng khoán viết hoa
-                                font=dict(size=18, color='#ffffff', weight='bold') # Làm font chữ to rõ ràng hơn
+                                text=f"📊 {ticker}", 
+                                font=dict(size=20, color='#000000', weight='bold') # Chuyển hẳn chữ sang ĐEN TUYỆT ĐỐI
                             ),
-                            template="plotly_dark",
+                            template="plotly_white", # Đổi mẫu giao diện sang nền Sáng gốc
+                            paper_bgcolor='rgba(0,0,0,0)', # Trong suốt lớp viền ngoài để tiệp với nền Streamlit
+                            plot_bgcolor='rgba(0,0,0,0)',
                             height=360,
-                            margin=dict(l=40, r=40, t=50, b=20), # Tăng lề trên một chút để thoáng chữ
+                            margin=dict(l=40, r=40, t=50, b=20), 
                             showlegend=False,
-                            xaxis=dict(showgrid=False),
+                            xaxis=dict(
+                                showgrid=False,
+                                tickfont=dict(color='#333333') # Chữ ngày tháng màu xám đậm dễ đọc
+                            ),
                             yaxis=dict(
                                 title="Vortex Pulse",
+                                titlefont=dict(color='#000000'),
                                 side="left",
                                 showgrid=True,
-                                gridcolor='rgba(255,255,255,0.03)'
+                                gridcolor='rgba(0,0,0,0.05)', # Lưới xám siêu mờ tương phản tốt trên nền trắng
+                                tickfont=dict(color='#333333')
                             ),
                             yaxis2=dict(
                                 title="ARSI / HDLine",
+                                titlefont=dict(color='#000000'),
                                 side="right",
                                 overlaying="y",
                                 range=[0, 110],
-                                showgrid=False
+                                showgrid=False,
+                                tickfont=dict(color='#333333')
                             )
                         )
-                        # ĐẨY CẤU HÌNH CONFIG: Ẩn thanh công cụ hover để không bị đè chữ trên Điện thoại
                         st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': 'hover'})
             else:
                 st.info("Hiện tại chưa tìm thấy mã nào bùng nổ thỏa mãn chấm tín hiệu xanh.")
