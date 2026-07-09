@@ -1,0 +1,4 @@
+streamlit
+vnstock
+pandas_ta
+pandas
