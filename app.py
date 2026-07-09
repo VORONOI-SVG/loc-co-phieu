@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 st.set_page_config(page_title="Bộ Lọc TradingView Khủng", layout="centered")
 
 st.title("🚀 Bộ Lọc & Biểu Đồ Kỹ Thuật KT2 Multi Pro")
-st.write("Đồng bộ hiển thị: Cột Histogram màu dòng tiền, đường Longest Wave và HDLine")
+st.write("Đồng bộ hiển thị: Cột Histogram thanh mảnh liên tục, đường Longest Wave và HDLine")
 
 # Danh sách 120 mã cổ phiếu tốt và thanh khoản cao trên thị trường Việt Nam
 symbols = [
@@ -148,7 +148,7 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                     if ticker in matched_stocks:
                         chart_data = matched_stocks[ticker].copy()
                         
-                        # Thuật toán phân tách 4 màu sắc cho từng thanh Histogram dựa trên xu hướng
+                        # Thuật toán phân tách màu sắc liên tục không đứt quãng
                         colors = []
                         vortex_vals = chart_data['vh_vortex'].values
                         
@@ -156,32 +156,33 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                             val = vortex_vals[i]
                             prev_val = vortex_vals[i-1] if i > 0 else 0
                             
-                            if abs(val) < 1.0: # Lực triệt tiêu hoặc bằng nhau quanh trục 0
-                                colors.append('rgba(128, 128, 128, 0.2)') # Màu xám trong suốt
-                            elif val > 0:
+                            if val >= 0:
                                 if val >= prev_val:
-                                    colors.append('#00c853') # Xanh lá đậm (Mua mạnh)
+                                    colors.append('#00c853') # Xanh lá đậm (Xu hướng tăng mạnh)
                                 else:
-                                    colors.append('#a5d6a7') # Xanh lá nhạt (Lực mua yếu đi)
+                                    colors.append('#a5d6a7') # Xanh lá nhạt (Xu hướng tăng yếu đi)
                             else:
                                 if val <= prev_val:
-                                    colors.append('#d50000') # Đỏ đậm (Bán mạnh)
+                                    colors.append('#d50000') # Đỏ đậm (Xu hướng giảm mạnh)
                                 else:
-                                    colors.append('#ef9a9a') # Đỏ nhạt (Lực bán giảm bớt)
+                                    colors.append('#ef9a9a') # Đỏ nhạt (Xu hướng giảm hồi phục)
                         
                         fig = go.Figure()
                         
-                        # 1. Vẽ VORTEX HISTOGRAM dạng cột thanh (Bars) -> Trục Y trái
+                        # 1. Vẽ VORTEX HISTOGRAM dạng thanh mảnh liên tục giống TradingView
+                        # Thêm `width=0.5` hoặc dùng milliseconds để ép cột nhỏ lại theo mong muốn
                         fig.add_trace(go.Bar(
                             x=chart_data.index, y=chart_data['vh_vortex'],
                             marker_color=colors,
+                            marker_line_width=0, # Xóa viền đen quanh cột để mượt hơn
+                            width=1000 * 60 * 60 * 16, # Thu nhỏ chiều rộng cột (tính theo mili-giây đối với mốc thời gian)
                             name='Vortex Histogram', yaxis='y1'
                         ))
                         
-                        # 2. Vẽ đường LONGEST WAVE đã chuẩn hóa tỉ lệ -> Trục Y trái (Chung trục Vortex)
+                        # 2. Vẽ đường LONGEST WAVE uốn lượn ổn định -> Trục Y trái (Chung trục Vortex)
                         fig.add_trace(go.Scatter(
                             x=chart_data.index, y=chart_data['longest_wave'],
-                            mode='lines', line=dict(color='#00e5ff', width=2, dash='solid'), # Màu Xanh Cyan gốc của bạn
+                            mode='lines', line=dict(color='#00e5ff', width=2, dash='solid'),
                             name='Longest Wave', yaxis='y1'
                         ))
                         
@@ -205,7 +206,7 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                         for idx, row in chart_data.iterrows():
                             if row['vh_vortex'] >= 0 and row['arsi'] > 80:
                                 sig_x.append(idx)
-                                sig_y.append(10) # Ghim cố định ở mốc 10 trên thang đo bên phải cho thẳng hàng
+                                sig_y.append(10)
                                 
                         if sig_x:
                             fig.add_trace(go.Scatter(
