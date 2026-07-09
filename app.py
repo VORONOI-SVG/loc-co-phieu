@@ -226,10 +226,12 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                                 name='Chấm Mua', yaxis='y2'
                             ))
                         
-                        # Thiết lập cấu hình hệ thống Đa trục tối ưu hoàn hảo cho NỀN TRẮNG (Light Mode)
+                        # Thiết lập cấu hình hệ thống Đa trục chuẩn hóa hoàn toàn dictionary
                         fig.update_layout(
-                            title_text=f"📊 <b>{ticker}</b>", # Định nghĩa tiêu đề trực tiếp
-                            title_font=dict(size=22, color='#000000'), # Định nghĩa font chữ riêng biệt theo chuẩn cú pháp Plotly
+                            title=dict(
+                                text=f"📊 <b>{ticker}</b>",
+                                font=dict(size=22, color='#000000') # Chữ tên mã ĐEN rõ nét
+                            ),
                             template="plotly_white", 
                             paper_bgcolor='rgba(0,0,0,0)', 
                             plot_bgcolor='rgba(0,0,0,0)',
@@ -241,16 +243,20 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                                 tickfont=dict(color='#333333')
                             ),
                             yaxis=dict(
-                                title="Vortex Pulse",
-                                titlefont=dict(color='#000000'),
+                                title=dict(
+                                    text="Vortex Pulse",
+                                    font=dict(color='#000000') # Đổi sang dạng cấu trúc dict hợp lệ
+                                ),
                                 side="left",
                                 showgrid=True,
                                 gridcolor='rgba(0,0,0,0.05)',
                                 tickfont=dict(color='#333333')
                             ),
                             yaxis2=dict(
-                                title="ARSI / HDLine",
-                                titlefont=dict(color='#000000'),
+                                title=dict(
+                                    text="ARSI / HDLine",
+                                    font=dict(color='#000000') # Đổi sang dạng cấu trúc dict hợp lệ
+                                ),
                                 side="right",
                                 overlaying="y",
                                 range=[0, 110],
