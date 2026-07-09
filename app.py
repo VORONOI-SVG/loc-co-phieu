@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 st.set_page_config(page_title="Bộ Lọc TradingView Khủng", layout="centered")
 
 st.title("🚀 Bộ Lọc & Biểu Đồ Kỹ Thuật KT2 Multi Pro")
-st.write("Đồng bộ hiển thị: Cột Histogram thanh mảnh liên tục, đường Longest Wave và HDLine")
+st.write("Đồng bộ hiển thị: Sóng Vortex liên tục, đường Longest Wave và HDLine chuẩn TradingView")
 
 # Danh sách 120 mã cổ phiếu tốt và thanh khoản cao trên thị trường Việt Nam
 symbols = [
@@ -148,59 +148,71 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                     if ticker in matched_stocks:
                         chart_data = matched_stocks[ticker].copy()
                         
-                        # Thuật toán phân tách màu sắc liên tục không đứt quãng
-                        colors = []
-                        vortex_vals = chart_data['vh_vortex'].values
+                        fig = go.Figure()
                         
+                        # Tách biệt mây mờ nền mặt đất thành 2 vùng Dương (Xanh) và Âm (Đỏ) để chạy liên tục không đứt quãng
+                        vortex_p = chart_data['vh_vortex'].clip(lower=0)
+                        vortex_n = chart_data['vh_vortex'].clip(upper=0)
+                        
+                        # 1. Vẽ mây mờ nền Xanh Dương (Vortex > 0)
+                        fig.add_trace(go.Scatter(
+                            x=chart_data.index, y=vortex_p,
+                            mode='lines', line=dict(width=0),
+                            fill='tozeroy', fillcolor='rgba(0, 200, 100, 0.08)',
+                            name='Mây Mua', yaxis='y1'
+                        ))
+                        
+                        # 2. Vẽ mây mờ nền Đỏ (Vortex < 0)
+                        fig.add_trace(go.Scatter(
+                            x=chart_data.index, y=vortex_n,
+                            mode='lines', line=dict(width=0),
+                            fill='tozeroy', fillcolor='rgba(255, 51, 51, 0.08)',
+                            name='Mây Bán', yaxis='y1'
+                        ))
+                        
+                        # 3. Dựng các sọc dọc Histogram thanh mảnh liên tục đúng màu xu hướng
+                        vortex_vals = chart_data['vh_vortex'].values
                         for i in range(len(vortex_vals)):
                             val = vortex_vals[i]
                             prev_val = vortex_vals[i-1] if i > 0 else 0
+                            idx = chart_data.index[i]
                             
+                            # Xác định màu sắc chuẩn động lượng
                             if val >= 0:
-                                if val >= prev_val:
-                                    colors.append('#00c853') # Xanh lá đậm (Xu hướng tăng mạnh)
-                                else:
-                                    colors.append('#a5d6a7') # Xanh lá nhạt (Xu hướng tăng yếu đi)
+                                col = '#00c853' if val >= prev_val else '#a5d6a7' # Xanh đậm / Xanh nhạt
                             else:
-                                if val <= prev_val:
-                                    colors.append('#d50000') # Đỏ đậm (Xu hướng giảm mạnh)
-                                else:
-                                    colors.append('#ef9a9a') # Đỏ nhạt (Xu hướng giảm hồi phục)
+                                col = '#d50000' if val <= prev_val else '#ef9a9a' # Đỏ đậm / Đỏ nhạt
+                                
+                            # Vẽ từng sọc dọc mảnh kết nối từ trục 0 đến đỉnh sóng
+                            fig.add_trace(go.Scatter(
+                                x=[idx, idx], y=[0, val],
+                                mode='lines',
+                                line=dict(color=col, width=1.5),
+                                hoverinfo='skip', showlegend=False, yaxis='y1'
+                            ))
                         
-                        fig = go.Figure()
-                        
-                        # 1. Vẽ VORTEX HISTOGRAM dạng thanh mảnh liên tục giống TradingView
-                        # Thêm `width=0.5` hoặc dùng milliseconds để ép cột nhỏ lại theo mong muốn
-                        fig.add_trace(go.Bar(
-                            x=chart_data.index, y=chart_data['vh_vortex'],
-                            marker_color=colors,
-                            marker_line_width=0, # Xóa viền đen quanh cột để mượt hơn
-                            width=1000 * 60 * 60 * 16, # Thu nhỏ chiều rộng cột (tính theo mili-giây đối với mốc thời gian)
-                            name='Vortex Histogram', yaxis='y1'
-                        ))
-                        
-                        # 2. Vẽ đường LONGEST WAVE uốn lượn ổn định -> Trục Y trái (Chung trục Vortex)
+                        # 4. Vẽ đường LONGEST WAVE uốn lượn liên tục sắc nét (Màu Xanh Cyan gốc)
                         fig.add_trace(go.Scatter(
                             x=chart_data.index, y=chart_data['longest_wave'],
                             mode='lines', line=dict(color='#00e5ff', width=2, dash='solid'),
                             name='Longest Wave', yaxis='y1'
                         ))
                         
-                        # 3. Vẽ đường AUGMENTED RSI màu cam -> Trục Y phải
+                        # 5. Vẽ đường AUGMENTED RSI màu cam rực rỡ
                         fig.add_trace(go.Scatter(
                             x=chart_data.index, y=chart_data['arsi'],
                             mode='lines', line=dict(color='#ff9900', width=2),
                             name='Augmented RSI', yaxis='y2'
                         ))
                         
-                        # 4. Vẽ đường HDLINE màu hồng/tím nhạt -> Trục Y phải
+                        # 6. Vẽ đường HDLINE giữ đỉnh màu hồng/tím nhạt
                         fig.add_trace(go.Scatter(
                             x=chart_data.index, y=chart_data['hdline'],
                             mode='lines', line=dict(color='#e040fb', width=1.5),
                             name='HDLine', yaxis='y2'
                         ))
                         
-                        # 5. Chấm tròn tín hiệu mua màu xanh sáng dưới đáy đồ thị
+                        # 7. Chấm tròn tín hiệu mua màu xanh sáng dưới đáy đồ thị
                         sig_x = []
                         sig_y = []
                         for idx, row in chart_data.iterrows():
@@ -222,10 +234,9 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                             height=360,
                             margin=dict(l=40, r=40, t=40, b=20),
                             showlegend=False,
-                            barmode='overlay',
                             xaxis=dict(showgrid=False),
                             yaxis=dict(
-                                title="Vortex & Longest Wave",
+                                title="Vortex Pulse",
                                 side="left",
                                 showgrid=True,
                                 gridcolor='rgba(255,255,255,0.03)'
