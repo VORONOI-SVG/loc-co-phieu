@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
-# Sử dụng cách khai báo chuẩn và ổn định nhất của thư viện vnstock3
-from vnstock import Vnstock
+# Sử dụng hàm lấy dữ liệu truyền thống, cực kỳ ổn định của Vnstock
+from vnstock import stock_historical_data
 import ta
 from datetime import datetime
 
@@ -23,16 +23,13 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
     with st.spinner("Đang kết nối dữ liệu sàn chứng khoán..."):
         results = []
         
-        # Tự động lấy ngày hôm nay
+        # Tự động lấy ngày hôm nay (Năm hiện tại là 2026)
         current_date = datetime.now().strftime('%Y-%m-%d')
-        
-        # Khởi tạo đối tượng Vnstock
-        stock = Vnstock()
         
         for ticker in symbols:
             try:
-                # Gọi hàm lấy ohlcv thông qua đối tượng stock (mặc định lấy nguồn tcbs hoặc ssi vô cùng ổn định)
-                df = stock.stock_historical_data(symbol=ticker, start_date='2026-01-01', end_date=current_date, resolution='1D')
+                # Hàm lấy dữ liệu lịch sử phiên bản gốc - chạy cực mượt trên Cloud
+                df = stock_historical_data(symbol=ticker, start_date='2026-01-01', end_date=current_date, resolution='1D')
                 
                 # Kiểm tra nếu dữ liệu rỗng
                 if df is None or df.empty or 'close' not in df.columns:
@@ -51,7 +48,7 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                     "RSI": round(latest['RSI'], 2) if not pd.isna(latest['RSI']) else 0,
                     "MA20": round(latest['MA20'], 2) if not pd.isna(latest['MA20']) else 0
                 })
-            except Exception as e:
+            except:
                 continue
 
         # Hiển thị kết quả ra màn hình
@@ -85,4 +82,4 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                 else:
                     st.info("Không có cổ phiếu nào nằm trên đường MA20.")
         else:
-            st.error("Hệ thống không quét được dữ liệu. Vui lòng bấm lại nút 'Bắt đầu quét dữ liệu' sau vài giây để kích hoạt lại cổng kết nối.")
+            st.error("Hệ thống chưa nhận được dữ liệu. Bạn vui lòng đợi vài giây rồi bấm lại nút Quét dữ liệu nhé.")
