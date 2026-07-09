@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
-# Nhập thẳng hàm lấy dữ liệu ohlcv của vnstock3 để chạy nhanh hơn
-from vnstock.data.equity import ohlcv
+# Sử dụng cách khai báo chuẩn và ổn định nhất của thư viện vnstock3
+from vnstock import Vnstock
 import ta
 from datetime import datetime
 
@@ -23,20 +23,20 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
     with st.spinner("Đang kết nối dữ liệu sàn chứng khoán..."):
         results = []
         
-        # Tự động lấy ngày hôm nay để đảm bảo dữ liệu luôn mới nhất
+        # Tự động lấy ngày hôm nay
         current_date = datetime.now().strftime('%Y-%m-%d')
+        
+        # Khởi tạo đối tượng Vnstock
+        stock = Vnstock()
         
         for ticker in symbols:
             try:
-                # Dùng hàm ohlcv trực tiếp, đổi nguồn sang 'dnse' hoặc 'tcbs' để tăng tỉ lệ thành công
-                df = ohlcv(symbol=ticker, start='2026-01-01', end=current_date, source='dnse')
+                # Gọi hàm lấy ohlcv thông qua đối tượng stock (mặc định lấy nguồn tcbs hoặc ssi vô cùng ổn định)
+                df = stock.stock_historical_data(symbol=ticker, start_date='2026-01-01', end_date=current_date, resolution='1D')
                 
                 # Kiểm tra nếu dữ liệu rỗng
                 if df is None or df.empty or 'close' not in df.columns:
-                    # Thử lại với nguồn tcbs nếu nguồn dnse bị nghẽn
-                    df = ohlcv(symbol=ticker, start='2026-01-01', end=current_date, source='tcbs')
-                    if df is None or df.empty or 'close' not in df.columns:
-                        continue
+                    continue
                 
                 # Tính RSI và MA20
                 df['RSI'] = ta.momentum.rsi(df['close'], window=14)
@@ -85,4 +85,4 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                 else:
                     st.info("Không có cổ phiếu nào nằm trên đường MA20.")
         else:
-            st.error("Hệ thống không quét được dữ liệu. Vui lòng bấm thử lại nút 'Bắt đầu quét dữ liệu' sau vài giây để kích hoạt lại cổng kết nối.")
+            st.error("Hệ thống không quét được dữ liệu. Vui lòng bấm lại nút 'Bắt đầu quét dữ liệu' sau vài giây để kích hoạt lại cổng kết nối.")
