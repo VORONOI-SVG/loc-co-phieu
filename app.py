@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-# Sử dụng hàm lấy dữ liệu truyền thống, cực kỳ ổn định của Vnstock
 from vnstock import stock_historical_data
 import ta
 from datetime import datetime
@@ -23,12 +22,12 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
     with st.spinner("Đang kết nối dữ liệu sàn chứng khoán..."):
         results = []
         
-        # Tự động lấy ngày hôm nay (Năm hiện tại là 2026)
+        # Tự động lấy ngày hôm nay
         current_date = datetime.now().strftime('%Y-%m-%d')
         
         for ticker in symbols:
             try:
-                # Hàm lấy dữ liệu lịch sử phiên bản gốc - chạy cực mượt trên Cloud
+                # Hàm lấy dữ liệu lịch sử phiên bản gốc
                 df = stock_historical_data(symbol=ticker, start_date='2026-01-01', end_date=current_date, resolution='1D')
                 
                 # Kiểm tra nếu dữ liệu rỗng
