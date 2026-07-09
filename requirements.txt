@@ -1,4 +1,4 @@
 streamlit
-vnstock
-pandas_ta
+vnstock3
+pandas-ta
 pandas
