@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 st.set_page_config(page_title="Bộ Lọc TradingView Khủng", layout="centered")
 
 st.title("🚀 Bộ Lọc & Biểu Đồ Kỹ Thuật KT2 Multi Pro")
-st.write("Đồng bộ hiển thị: Cột Histogram màu dòng tiền, đường Longest Wave và HDLine")
+st.write("Đồng bộ hiển thị: Vortex dạng thanh kim đổ bóng mờ, sửa lỗi đường Longest Wave")
 
 # Danh sách 120 mã cổ phiếu
 symbols = [
@@ -51,7 +51,7 @@ def calculate_indicators(df, length=14):
     arsi_den = rma(arsi_diff.abs(), length)
     df['arsi'] = (arsi_num / arsi_den.replace(0, np.nan)) * 50 + 50
     
-    # 2. Tính toán HDLine (Giữ đỉnh khi ARSI > 80 giống Pine Script)
+    # 2. Tính toán HDLine
     hdline = []
     current_hd = 80.0
     for arsi_val in df['arsi']:
@@ -65,7 +65,7 @@ def calculate_indicators(df, length=14):
             hdline.append(current_hd)
     df['hdline'] = hdline
 
-    # 3. Tính toán các đường sóng Vortex và Longest Wave nguyên bản
+    # 3. Tính toán các đường sóng Vortex và Longest Wave
     vh_short_sma   = src.rolling(window=6).mean()
     vh_long_sma    = src.rolling(window=27).mean()
     vh_longer_sma  = src.rolling(window=72).mean()
@@ -76,6 +76,9 @@ def calculate_indicators(df, length=14):
     vh_longesth  = vh_short_sma - df['longest_wave']
     
     df['vh_vortex'] = (vh_hist / 3 + vh_longh / 2 + vh_longesth / 4) / 3
+    
+    # Chuẩn hóa Longest Wave về thang đo tương đương Vortex để hiển thị chính xác trên biểu đồ
+    df['longest_wave_scaled'] = (df['longest_wave'] - df['longest_wave'].rolling(60).mean()) / df['longest_wave'].rolling(60).std() * 0.3
     
     return df
 
@@ -144,60 +147,74 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                     if ticker in matched_stocks:
                         chart_data = matched_stocks[ticker].copy()
                         
-                        # Thuật toán tính màu sắc đổ cho từng cây nến Histogram dựa trên động lượng dòng tiền
-                        colors = []
-                        vortex_vals = chart_data['vh_vortex'].values
+                        fig = go.Figure()
                         
+                        # Tách mây và tính toán mốc màu sắc
+                        vortex_vals = chart_data['vh_vortex'].values
+                        dates = chart_data.index
+                        
+                        # 1. TẠO CÁC THANH KIM (THIN BARS) VORTEX ĐỔ MÀU THEO PHIÊN
                         for i in range(len(vortex_vals)):
                             val = vortex_vals[i]
                             prev_val = vortex_vals[i-1] if i > 0 else 0
                             
-                            if abs(val) < 0.01:  # Hai lực bằng nhau hoặc không đáng kể
-                                colors.append('rgba(128, 128, 128, 0.2)') # Màu xám mờ
+                            # Xác định màu sắc chuẩn xác của thanh kim
+                            if abs(val) < 0.005:
+                                bar_color = 'rgba(128, 128, 128, 0.1)'  # Không có lực (Xám rất mờ)
                             elif val > 0:
-                                if val >= prev_val:
-                                    colors.append('#00c853') # Xanh lá đậm (Mua mạnh)
-                                else:
-                                    colors.append('#a5d6a7') # Xanh lá nhạt (Mua yếu dần)
+                                bar_color = '#00c853' if val >= prev_val else '#a5d6a7'  # Xanh đậm / Xanh nhạt
                             else:
-                                if val <= prev_val:
-                                    colors.append('#d50000') # Đỏ đậm (Bán mạnh)
-                                else:
-                                    colors.append('#ef9a9a') # Đỏ nhạt (Bán giảm bớt)
+                                bar_color = '#d50000' if val <= prev_val else '#ef9a9a'  # Đỏ đậm / Đỏ nhạt
+                                
+                            # Vẽ từng thanh găm mỏng (Needle Bar)
+                            fig.add_trace(go.Scatter(
+                                x=[dates[i], dates[i]], y=[0, val],
+                                mode='lines',
+                                line=dict(color=bar_color, width=1.5),
+                                hoverinfo='skip', showlegend=False, yaxis='y1'
+                            ))
                         
-                        fig = go.Figure()
+                        # 2. VẼ VÙNG ĐỔ BÓNG MỜ PHÍA DƯỚI (AREA FILL KHÔNG VIỀN)
+                        vortex_p = chart_data['vh_vortex'].clip(lower=0)
+                        vortex_n = chart_data['vh_vortex'].clip(upper=0)
                         
-                        # 1. Vẽ VORTEX HISTOGRAM dạng cột thanh (Bars) -> Trục Y trái
-                        fig.add_trace(go.Bar(
-                            x=chart_data.index, y=chart_data['vh_vortex'],
-                            marker_color=colors,
-                            name='Vortex Histogram', yaxis='y1'
+                        fig.add_trace(go.Scatter(
+                            x=dates, y=vortex_p, mode='lines', line=dict(width=0),
+                            fill='tozeroy', fillcolor='rgba(0, 200, 83, 0.08)', showlegend=False, yaxis='y1'
+                        ))
+                        fig.add_trace(go.Scatter(
+                            x=dates, y=vortex_n, mode='lines', line=dict(width=0),
+                            fill='tozeroy', fillcolor='rgba(213, 0, 0, 0.08)', showlegend=False, yaxis='y1'
+                        ))
+
+                        # 3. VẼ ĐƯỜNG LONGEST WAVE (Màu xanh Cyan sáng bóng dễ nhìn, bám sát vùng trung tâm)
+                        fig.add_trace(go.Scatter(
+                            x=dates, y=chart_data['longest_wave_scaled'],
+                            mode='lines', line=dict(color='#00e5ff', width=1.5, dash='solid'),
+                            name='Longest Wave', yaxis='y1'
                         ))
                         
-                        # 2. Vẽ đường LONGEST WAVE nguyên bản chạy độc lập -> Trục Y trái (Phụ)
+                        # 4. VẼ TRỤC CÂN BẰNG 0
                         fig.add_trace(go.Scatter(
-                            x=chart_data.index, y=chart_data['longest_wave'],
-                            mode='lines', line=dict(color='rgba(255, 255, 255, 0.5)', width=1.8, dash='solid'),
-                            name='Longest Wave', yaxis='y3'
+                            x=dates, y=[0]*len(chart_data),
+                            mode='lines', line=dict(color='rgba(255,255,255,0.2)', width=1, dash='dash'),
+                            showlegend=False, yaxis='y1'
                         ))
                         
-                        # 3. Vẽ đường AUGMENTED RSI màu cam -> Trục Y phải
+                        # 5. VẼ ĐƯỜNG AUGMENTED RSI VÀ HDLINE -> Trục Y phải (0-100)
                         fig.add_trace(go.Scatter(
-                            x=chart_data.index, y=chart_data['arsi'],
+                            x=dates, y=chart_data['arsi'],
                             mode='lines', line=dict(color='#ff9900', width=2),
                             name='Augmented RSI', yaxis='y2'
                         ))
-                        
-                        # 4. Vẽ đường HDLINE màu xanh cyan -> Trục Y phải
                         fig.add_trace(go.Scatter(
-                            x=chart_data.index, y=chart_data['hdline'],
-                            mode='lines', line=dict(color='#00e5ff', width=1.5),
+                            x=dates, y=chart_data['hdline'],
+                            mode='lines', line=dict(color='#ea80fc', width=1.5),
                             name='HDLine', yaxis='y2'
                         ))
                         
-                        # 5. Chấm tròn tín hiệu mua màu xanh sáng dưới đáy
-                        sig_x = []
-                        sig_y = []
+                        # 6. Chấm tròn tín hiệu mua màu xanh sáng phát sáng dưới đáy
+                        sig_x, sig_y = [], []
                         for idx, row in chart_data.iterrows():
                             if row['vh_vortex'] >= 0 and row['arsi'] > 80:
                                 sig_x.append(idx)
@@ -210,17 +227,16 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                                 name='Chấm Mua', yaxis='y2'
                             ))
                         
-                        # Thiết lập cấu hình hệ thống Đa trục cân bằng (Trục 1: Histo, Trục 2: RSI, Trục 3: Longest)
+                        # Thiết lập cấu hình đồng bộ chuẩn Darkmode
                         fig.update_layout(
                             title=f"📊 Hệ thống KT2 Multi: **{ticker}**",
                             template="plotly_dark",
-                            height=350,
+                            height=360,
                             margin=dict(l=40, r=40, t=40, b=20),
                             showlegend=False,
-                            barmode='overlay',
                             xaxis=dict(showgrid=False),
                             yaxis=dict(
-                                title="Vortex Histo",
+                                title="Vortex Pulse",
                                 side="left",
                                 showgrid=True,
                                 gridcolor='rgba(255,255,255,0.03)'
@@ -231,12 +247,6 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                                 overlaying="y",
                                 range=[0, 110],
                                 showgrid=False
-                            ),
-                            yaxis3=dict(
-                                title="Longest Wave",
-                                side="left",
-                                overlaying="y",
-                                visible=False # Chạy ngầm định hướng để không đè layout số
                             )
                         )
                         st.plotly_chart(fig, use_container_width=True)
