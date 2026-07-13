@@ -4,7 +4,6 @@ import numpy as np
 import yfinance as yf
 from datetime import datetime
 import plotly.graph_objects as go
-import time
 
 # 1. CẤU HÌNH TRANG - Bắt buộc là lệnh Streamlit đầu tiên
 st.set_page_config(page_title="Bộ Lọc TradingView Khủng", layout="centered")
@@ -85,54 +84,65 @@ def calculate_indicators(df, length=14):
     return df
 
 if st.button("🚀 Bắt đầu quét dữ liệu"):
-    with st.spinner("Đang kết nối cổng dữ liệu tài chính ổn định..."):
+    with st.spinner("Đang tải dữ liệu hàng loạt từ Yahoo Finance (Tốc độ cao)..."):
         matched_stocks = {}
         all_results = []
+        current_date = datetime.now().strftime('%Y-%m-%d')
         
-        # Sử dụng đối tượng Ticker và hàm history() để tăng độ ổn định tuyệt đối
-        for ticker in symbols:
-            try:
-                yahoo_ticker = f"{ticker}.VN"
-                stock_obj = yf.Ticker(yahoo_ticker)
-                raw_df = stock_obj.history(period="3y", interval="1d")
-                
-                if raw_df is None or raw_df.empty or len(raw_df) < 240:
-                    continue
-                
-                df = raw_df.copy()
-                df.columns = [str(col).lower() for col in df.columns]
-                
-                df = calculate_indicators(df)
-                
-                latest = df.iloc[-1]
-                arsi_val = float(latest['arsi']) if not pd.isna(latest['arsi']) else 0.0
-                vortex_val = float(latest['vh_vortex']) if not pd.isna(latest['vh_vortex']) else 0.0
-                close_val = float(latest['close']) if not pd.isna(latest['close']) else 0.0
-                
-                vh_green_rising = vortex_val >= 0
-                arsi_over_80    = arsi_val > 80
-                combined_signal = "🟢 MUA" if (vh_green_rising and arsi_over_80) else "⚪ Chờ"
-                
-                res_item = {
-                    "Mã CP": ticker,
-                    "Giá Đóng (VNĐ)": round(close_val, 0),
-                    "Augmented RSI": round(arsi_val, 2),
-                    "Vortex Histo Wave": round(vortex_val, 2),
-                    "Tín hiệu": combined_signal
-                }
-                all_results.append(res_item)
-                
-                if "150 mã" in filter_mode:
-                    matched_stocks[ticker] = df.tail(60)
-                elif filter_mode == "Chỉ hiện mã thỏa điều kiện MUA" and combined_signal == "🟢 MUA":
-                    matched_stocks[ticker] = df.tail(60)
-                
-                # Delay cực ngắn để tránh bị Yahoo giới hạn băng thông (Rate limit)
-                time.sleep(0.05)
-            except:
-                continue
+        # Gom toàn bộ mã thành chuỗi cách nhau bởi dấu cách để tải 1 lần duy nhất
+        tickers_string = " ".join([f"{s}.VN" for s in symbols])
+        
+        try:
+            # Tải đồng thời tất cả các mã để tránh bị block IP trên Cloud
+            raw_data = yf.download(tickers_string, period="3y", end=current_date, group_by='ticker', progress=False)
+            
+            if raw_data is not None and not raw_data.empty:
+                for ticker in symbols:
+                    try:
+                        yahoo_code = f"{ticker}.VN"
+                        
+                        # Kiểm tra xem mã đó có dữ liệu trong bảng tổng hợp không
+                        if yahoo_code in raw_data.columns.levels[0]:
+                            df = raw_data[yahoo_code].dropna(subset=['Close']).copy()
+                        else:
+                            continue
+                            
+                        if len(df) < 240:
+                            continue
+                            
+                        # Chuẩn hóa tên cột về chữ thường
+                        df.columns = [str(col).lower() for col in df.columns]
+                        
+                        df = calculate_indicators(df)
+                        
+                        latest = df.iloc[-1]
+                        arsi_val = float(latest['arsi']) if not pd.isna(latest['arsi']) else 0.0
+                        vortex_val = float(latest['vh_vortex']) if not pd.isna(latest['vh_vortex']) else 0.0
+                        close_val = float(latest['close']) if not pd.isna(latest['close']) else 0.0
+                        
+                        vh_green_rising = vortex_val >= 0
+                        arsi_over_80    = arsi_val > 80
+                        combined_signal = "🟢 MUA" if (vh_green_rising and arsi_over_80) else "⚪ Chờ"
+                        
+                        res_item = {
+                            "Mã CP": ticker,
+                            "Giá Đóng (VNĐ)": round(close_val, 0),
+                            "Augmented RSI": round(arsi_val, 2),
+                            "Vortex Histo Wave": round(vortex_val, 2),
+                            "Tín hiệu": combined_signal
+                        }
+                        all_results.append(res_item)
+                        
+                        if "150 mã" in filter_mode:
+                            matched_stocks[ticker] = df.tail(60)
+                        elif filter_mode == "Chỉ hiện mã thỏa điều kiện MUA" and combined_signal == "🟢 MUA":
+                            matched_stocks[ticker] = df.tail(60)
+                    except:
+                        continue
+        except Exception as e:
+            st.error(f"Lỗi hệ thống khi kết nối API: {str(e)}")
 
-        # --- HIỂN THỊ KẾT QUẢ KÈM ĐỒ THỊ PLOTLY ---
+        # --- HIỂN THỊ KẾT QUẢ KÈM ĐỒ THỊ ---
         if len(all_results) > 0:
             res_df = pd.DataFrame(all_results)
             
