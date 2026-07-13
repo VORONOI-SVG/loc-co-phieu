@@ -84,35 +84,43 @@ def calculate_indicators(df, length=14):
     return df
 
 if st.button("🚀 Bắt đầu quét dữ liệu"):
-    with st.spinner("Đang tải dữ liệu hàng loạt từ Yahoo Finance (Tốc độ cao)..."):
+    with st.spinner("Đang kết nối API Yahoo Finance và xử lý dữ liệu..."):
         matched_stocks = {}
         all_results = []
         current_date = datetime.now().strftime('%Y-%m-%d')
         
-        # Gom toàn bộ mã thành chuỗi cách nhau bởi dấu cách để tải 1 lần duy nhất
-        tickers_string = " ".join([f"{s}.VN" for s in symbols])
+        # Tạo danh sách mã có kèm hậu tố .VN
+        tickers_list = [f"{s}.VN" for s in symbols]
         
         try:
-            # Tải đồng thời tất cả các mã để tránh bị block IP trên Cloud
-            raw_data = yf.download(tickers_string, period="3y", end=current_date, group_by='ticker', progress=False)
+            # Tải dữ liệu hàng loạt nâng cao, trả về định dạng phẳng (group_by không bắt buộc để tránh lỗi tầng)
+            raw_data = yf.download(tickers_list, period="3y", end=current_date, progress=False)
             
             if raw_data is not None and not raw_data.empty:
                 for ticker in symbols:
                     try:
                         yahoo_code = f"{ticker}.VN"
+                        df = pd.DataFrame(index=raw_data.index)
                         
-                        # Kiểm tra xem mã đó có dữ liệu trong bảng tổng hợp không
-                        if yahoo_code in raw_data.columns.levels[0]:
-                            df = raw_data[yahoo_code].dropna(subset=['Close']).copy()
+                        # Trích xuất dữ liệu đa tầng linh hoạt (chống lỗi định dạng cột của yfinance)
+                        if isinstance(raw_data.columns, pd.MultiIndex):
+                            if yahoo_code in raw_data.columns.levels[0]:
+                                df['close'] = raw_data[(yahoo_code, 'Close')]
+                            elif yahoo_code in raw_data.columns.levels[1]:
+                                df['close'] = raw_data[('Close', yahoo_code)]
+                            else:
+                                continue
                         else:
-                            continue
-                            
+                            # Trường hợp yfinance chỉ trả về 1 mã do các mã khác bị lọc sạch
+                            if 'Close' in raw_data.columns:
+                                df['close'] = raw_data['Close']
+                            else:
+                                continue
+                                
+                        df = df.dropna(subset=['close']).copy()
                         if len(df) < 240:
                             continue
                             
-                        # Chuẩn hóa tên cột về chữ thường
-                        df.columns = [str(col).lower() for col in df.columns]
-                        
                         df = calculate_indicators(df)
                         
                         latest = df.iloc[-1]
@@ -140,7 +148,7 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                     except:
                         continue
         except Exception as e:
-            st.error(f"Lỗi hệ thống khi kết nối API: {str(e)}")
+            pass
 
         # --- HIỂN THỊ KẾT QUẢ KÈM ĐỒ THỊ ---
         if len(all_results) > 0:
@@ -197,4 +205,4 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
             else:
                 st.info("Hiện tại chưa tìm thấy mã nào thỏa mãn chấm tín hiệu xanh.")
         else:
-            st.error("Không lấy được dữ liệu thị trường từ hệ thống Yahoo Finance, vui lòng nhấn quét lại.")
+            st.error("Không lấy được dữ liệu thị trường từ hệ thống Yahoo Finance, vui lòng thử nhấn quét lại.")
