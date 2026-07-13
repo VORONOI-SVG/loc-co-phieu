@@ -5,13 +5,13 @@ import yfinance as yf
 from datetime import datetime
 import plotly.graph_objects as go
 
-# 1. CẤU HÌNH TRANG - Bắt buộc phải là lệnh Streamlit đầu tiên
+# 1. CẤU HÌNH TRANG - Bắt buộc là lệnh Streamlit đầu tiên
 st.set_page_config(page_title="Bộ Lọc TradingView Khủng", layout="centered")
 
 st.title("🚀 Bộ Lọc & Biểu Đồ Kỹ Thuật KT2 Multi Pro")
 st.write("Đồng bộ hiển thị: Sóng Vortex liên tục, đường Longest Wave và HDLine chuẩn TradingView")
 
-# Danh sách 150 mã cổ phiếu sạch, không chứa ký tự lạ
+# Danh sách 150 mã cổ phiếu tiêu chuẩn Việt Nam
 symbols = [
     'OCB', 'VCB', 'TCB', 'STB', 'MBB', 'ACB', 'BID', 'CTG', 'VPB', 'HDB', 
     'VIB', 'LPB', 'SHB', 'TPB', 'MSB', 'BAB', 'EIB', 'NAB', 'SSB', 'BVB', 
@@ -31,20 +31,17 @@ symbols = [
     'BAF', 'HNG'
 ]
 
-# Sắp xếp và lọc trùng
 symbols = sorted(list(set(symbols)))
 
-# Sidebar chọn chế độ hiển thị
 filter_mode = st.sidebar.selectbox("Chế độ hiển thị:", ["Chỉ hiện mã thỏa điều kiện MUA", "Hiện tất cả danh sách (150 mã)"])
 
-# --- CÁC HÀM TÍNH TOÁN CHỈ BÁO NÂNG CAO ---
 def rma(series, period):
     return series.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
 
 def calculate_indicators(df, length=14):
-    src = df['close']
+    # Đảm bảo series trích xuất là 1D phẳng
+    src = pd.Series(df['close'].values.flatten(), index=df.index)
     
-    # Augmented RSI
     upper = src.rolling(window=length).max()
     lower = src.rolling(window=length).min()
     rsi_r = upper - lower
@@ -57,9 +54,9 @@ def calculate_indicators(df, length=14):
     arsi_diff = pd.Series(rsi_diff_np, index=df.index)
     arsi_num = rma(arsi_diff, length)
     arsi_den = rma(arsi_diff.abs(), length)
+    
     df['arsi'] = (arsi_num / arsi_den.replace(0, np.nan)) * 50 + 50
     
-    # HDLine
     hdline = []
     current_hd = 80.0
     for arsi_val in df['arsi']:
@@ -73,7 +70,6 @@ def calculate_indicators(df, length=14):
             hdline.append(current_hd)
     df['hdline'] = hdline
 
-    # Vortex & Longest Wave
     vh_short_sma   = src.rolling(window=6).mean()
     vh_long_sma    = src.rolling(window=27).mean()
     vh_longer_sma  = src.rolling(window=72).mean()
@@ -88,9 +84,8 @@ def calculate_indicators(df, length=14):
     
     return df
 
-# Nút quét dữ liệu
 if st.button("🚀 Bắt đầu quét dữ liệu"):
-    with st.spinner("Đang tải dữ liệu và phân tích xung lực dòng tiền..."):
+    with st.spinner("Đang kết nối API và phân tích dữ liệu kỹ thuật..."):
         matched_stocks = {}
         all_results = []
         current_date = datetime.now().strftime('%Y-%m-%d')
@@ -98,20 +93,23 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
         for ticker in symbols:
             try:
                 yahoo_ticker = f"{ticker}.VN"
-                df = yf.download(yahoo_ticker, period="3y", end=current_date, progress=False)
+                raw_df = yf.download(yahoo_ticker, period="3y", end=current_date, progress=False)
                 
-                if df is None or df.empty or len(df) < 240:
+                if raw_df is None or raw_df.empty or len(raw_df) < 240:
                     continue
                 
-                # Ép phẳng MultiIndex nếu có và chuyển chữ thường
-                df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
-                df.columns = [col.lower() for col in df.columns]
+                # Ép phẳng cấu hình đa tầng (MultiIndex) của yfinance mới
+                df = raw_df.copy()
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = df.columns.get_level_values(0)
+                df.columns = [str(col).lower() for col in df.columns]
                 
                 df = calculate_indicators(df)
                 
                 latest = df.iloc[-1]
-                arsi_val = float(latest['arsi']) if not pd.isna(latest['arsi']) else 0
-                vortex_val = float(latest['vh_vortex']) if not pd.isna(latest['vh_vortex']) else 0
+                arsi_val = float(latest['arsi']) if not pd.isna(latest['arsi']) else 0.0
+                vortex_val = float(latest['vh_vortex']) if not pd.isna(latest['vh_vortex']) else 0.0
+                close_val = float(latest['close']) if not pd.isna(latest['close']) else 0.0
                 
                 vh_green_rising = vortex_val >= 0
                 arsi_over_80    = arsi_val > 80
@@ -119,7 +117,7 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                 
                 res_item = {
                     "Mã CP": ticker,
-                    "Giá Đóng (VNĐ)": round(float(latest['close']), 0),
+                    "Giá Đóng (VNĐ)": round(close_val, 0),
                     "Augmented RSI": round(arsi_val, 2),
                     "Vortex Histo Wave": round(vortex_val, 2),
                     "Tín hiệu": combined_signal
@@ -134,7 +132,7 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
             except:
                 continue
 
-        # --- HIỂN THỊ KẾT QUẢ ---
+        # --- HIỂN THỊ KẾT QUẢ KÈM ĐỒ THỊ PLOTLY ---
         if len(all_results) > 0:
             res_df = pd.DataFrame(all_results)
             
@@ -155,13 +153,13 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                         chart_data = matched_stocks[ticker].copy()
                         fig = go.Figure()
                         
-                        vortex_p = chart_data['vh_vortex'].clip(lower=0)
-                        vortex_n = chart_data['vh_vortex'].clip(upper=0)
+                        vortex_p = chart_data['vh_vortex'].clip(lower=0).values.flatten()
+                        vortex_n = chart_data['vh_vortex'].clip(upper=0).values.flatten()
                         
                         fig.add_trace(go.Scatter(x=chart_data.index, y=vortex_p, mode='lines', line=dict(width=0), fill='tozeroy', fillcolor='rgba(0, 180, 50, 0.08)', yaxis='y1'))
                         fig.add_trace(go.Scatter(x=chart_data.index, y=vortex_n, mode='lines', line=dict(width=0), fill='tozeroy', fillcolor='rgba(230, 30, 30, 0.08)', yaxis='y1'))
                         
-                        vortex_vals = chart_data['vh_vortex'].values
+                        vortex_vals = chart_data['vh_vortex'].values.flatten()
                         for i in range(len(vortex_vals)):
                             val = vortex_vals[i]
                             prev_val = vortex_vals[i-1] if i > 0 else 0
@@ -169,11 +167,11 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                             col = '#00aa3c' if val >= prev_val else '#81c784' if val >= 0 else '#b71c1c' if val <= prev_val else '#e57373'
                             fig.add_trace(go.Scatter(x=[idx, idx], y=[0, val], mode='lines', line=dict(color=col, width=1.5), hoverinfo='skip', showlegend=False, yaxis='y1'))
                         
-                        fig.add_trace(go.Scatter(x=chart_data.index, y=chart_data['longest_wave'], mode='lines', line=dict(color='#00b8d4', width=2), name='Longest Wave', yaxis='y1'))
-                        fig.add_trace(go.Scatter(x=chart_data.index, y=chart_data['arsi'], mode='lines', line=dict(color='#ff8f00', width=2), name='Augmented RSI', yaxis='y2'))
-                        fig.add_trace(go.Scatter(x=chart_data.index, y=chart_data['hdline'], mode='lines', line=dict(color='#c51162', width=1.5), name='HDLine', yaxis='y2'))
+                        fig.add_trace(go.Scatter(x=chart_data.index, y=chart_data['longest_wave'].values.flatten(), mode='lines', line=dict(color='#00b8d4', width=2), name='Longest Wave', yaxis='y1'))
+                        fig.add_trace(go.Scatter(x=chart_data.index, y=chart_data['arsi'].values.flatten(), mode='lines', line=dict(color='#ff8f00', width=2), name='Augmented RSI', yaxis='y2'))
+                        fig.add_trace(go.Scatter(x=chart_data.index, y=chart_data['hdline'].values.flatten(), mode='lines', line=dict(color='#c51162', width=1.5), name='HDLine', yaxis='y2'))
                         
-                        sig_x = [idx for idx, row in chart_data.iterrows() if row['vh_vortex'] >= 0 and row['arsi'] > 80]
+                        sig_x = [idx for idx, row in chart_data.iterrows() if float(row['vh_vortex']) >= 0 and float(row['arsi']) > 80]
                         if sig_x:
                             fig.add_trace(go.Scatter(x=sig_x, y=[10]*len(sig_x), mode='markers', marker=dict(color='#00e676', size=9), name='Chấm Mua', yaxis='y2'))
                         
