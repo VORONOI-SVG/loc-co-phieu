@@ -5,57 +5,46 @@ import yfinance as yf
 from datetime import datetime
 import plotly.graph_objects as go
 
-# Cấu hình giao diện gọn gàng, tối ưu tuyệt đối cho màn hình điện thoại
+# 1. CẤU HÌNH TRANG - Bắt buộc phải là lệnh Streamlit đầu tiên
 st.set_page_config(page_title="Bộ Lọc TradingView Khủng", layout="centered")
 
 st.title("🚀 Bộ Lọc & Biểu Đồ Kỹ Thuật KT2 Multi Pro")
 st.write("Đồng bộ hiển thị: Sóng Vortex liên tục, đường Longest Wave và HDLine chuẩn TradingView")
 
-# Danh sách 150 mã cổ phiếu đã chuẩn hóa (loại bỏ hoàn toàn các mã lỗi ký tự '_')
+# Danh sách 150 mã cổ phiếu sạch, không chứa ký tự lạ
 symbols = [
-    # 1. NHÓM NGÂN HÀNG (BANK)
     'OCB', 'VCB', 'TCB', 'STB', 'MBB', 'ACB', 'BID', 'CTG', 'VPB', 'HDB', 
     'VIB', 'LPB', 'SHB', 'TPB', 'MSB', 'BAB', 'EIB', 'NAB', 'SSB', 'BVB', 
-    'ABB', 'PGB', 'KLB', 'SGB', 'VAB',
-    # 2. NHÓM CHỨNG KHOÁN
-    'SSI', 'VND', 'VCI', 'HCM', 'FTS', 'BSI', 'MBS', 'SHS', 'AGR', 'CTS', 
-    'VIX', 'ORS', 'BVS', 'TVSI', 'VDS', 'TCI', 'PSI', 'APG', 'SBS', 'WSS',
-    # 3. NHÓM THÉP & KIM LOẠI
-    'HPG', 'HSG', 'NKG', 'VGS', 'SMC', 'TLH', 'POM', 'TVN', 'KKC', 'VNS',
-    # 4. NHÓM BẤT ĐỘNG SẢN DÂN CƯ
-    'VIC', 'VHM', 'VRE', 'NVL', 'PDR', 'DIG', 'CEO', 'DXG', 'KDH', 'NLG', 
-    'VPI', 'DXS', 'HQC', 'IJC', 'LDG', 'SCR', 'TCH', 'ITA', 'HDG', 'CRE', 
-    'KHG', 'NHA', 'AGG', 'QCG', 'NTL',
-    # 5. NHÓM KHU CÔNG NGHIỆP
-    'KBC', 'IDC', 'SZC', 'VGC', 'LHG', 'TIP', 'PHR', 'DPR', 'D2D', 'SIP',
-    # 6. NHÓM CÔNG NGHỆ, BÁN LẺ & TIÊU DÙNG
+    'ABB', 'PGB', 'KLB', 'SGB', 'VAB', 'SSI', 'VND', 'VCI', 'HCM', 'FTS', 
+    'BSI', 'MBS', 'SHS', 'AGR', 'CTS', 'VIX', 'ORS', 'BVS', 'TVSI', 'VDS', 
+    'TCI', 'PSI', 'APG', 'SBS', 'WSS', 'HPG', 'HSG', 'NKG', 'VGS', 'SMC', 
+    'TLH', 'POM', 'TVN', 'KKC', 'VNS', 'VIC', 'VHM', 'VRE', 'NVL', 'PDR', 
+    'DIG', 'CEO', 'DXG', 'KDH', 'NLG', 'VPI', 'DXS', 'HQC', 'IJC', 'LDG', 
+    'SCR', 'TCH', 'ITA', 'HDG', 'CRE', 'KHG', 'NHA', 'AGG', 'QCG', 'NTL', 
+    'KBC', 'IDC', 'SZC', 'VGC', 'LHG', 'TIP', 'PHR', 'DPR', 'D2D', 'SIP', 
     'FPT', 'MWG', 'FRT', 'DGW', 'PNJ', 'VNM', 'MSN', 'SAB', 'MCH', 'VTP', 
-    'PET', 'CMG', 'ELA', 'KDC', 'VOC', 'HAX', 'SMC',
-    # 7. NHÓM DẦU KHÍ, NĂNG LƯỢNG & ĐIỆN
-    'GAS', 'PVD', 'PVS', 'POW', 'PC1', 'GEG', 'PVT', 'BSR', 'OIL', 'NT2', 
-    'QTP', 'TV2', 'HND', 'VSH', 'SAM',
-    # 8. NHÓM HÓA CHẤT, PHÂN BÓN & CAO SU
-    'DGC', 'DPM', 'DCM', 'CSV', 'BFC', 'GVR', 'DRI', 'DDV', 'LAS', 'APH',
-    # 9. NHÓM ĐẦU TƯ CÔNG, XÂY DỰNG & VẬT LIỆU
-    'HHV', 'LCG', 'VJC', 'C4G', 'FCN', 'VCG', 'CII', 'HT1', 'BCC', 'KSB',
-    # 10. NHÓM THỦY SẢN, NÔNG NGHIỆP & DỆT MAY
-    'ANV', 'VHC', 'DBC', 'PAN', 'TNG', 'MSH', 'FMC', 'CMX', 'IDI', 'BAF', 'HNG'
+    'PET', 'CMG', 'ELA', 'KDC', 'VOC', 'HAX', 'GAS', 'PVD', 'PVS', 'POW', 
+    'PC1', 'GEG', 'PVT', 'BSR', 'OIL', 'NT2', 'QTP', 'TV2', 'HND', 'VSH', 
+    'SAM', 'DGC', 'DPM', 'DCM', 'CSV', 'BFC', 'GVR', 'DRI', 'DDV', 'LAS', 
+    'APH', 'HHV', 'LCG', 'VJC', 'C4G', 'FCN', 'VCG', 'CII', 'HT1', 'BCC', 
+    'KSB', 'ANV', 'VHC', 'DBC', 'PAN', 'TNG', 'MSH', 'FMC', 'CMX', 'IDI', 
+    'BAF', 'HNG'
 ]
 
-# Loại bỏ các mã trùng lặp nếu vô tình khai báo đúp và sắp xếp lại theo thứ tự ABC
+# Sắp xếp và lọc trùng
 symbols = sorted(list(set(symbols)))
 
-# Thanh điều hướng ẩn gọn trong Sidebar cho Mobile
+# Sidebar chọn chế độ hiển thị
 filter_mode = st.sidebar.selectbox("Chế độ hiển thị:", ["Chỉ hiện mã thỏa điều kiện MUA", "Hiện tất cả danh sách (150 mã)"])
 
-# --- CÁC HÀM TOÁN HỌC DỊCH TỪ PINE SCRIPT ---
+# --- CÁC HÀM TÍNH TOÁN CHỈ BÁO NÂNG CAO ---
 def rma(series, period):
     return series.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
 
 def calculate_indicators(df, length=14):
     src = df['close']
     
-    # 1. Tính toán Augmented RSI
+    # Augmented RSI
     upper = src.rolling(window=length).max()
     lower = src.rolling(window=length).min()
     rsi_r = upper - lower
@@ -70,7 +59,7 @@ def calculate_indicators(df, length=14):
     arsi_den = rma(arsi_diff.abs(), length)
     df['arsi'] = (arsi_num / arsi_den.replace(0, np.nan)) * 50 + 50
     
-    # 2. Tính toán HDLine (Giữ đỉnh khi ARSI > 80)
+    # HDLine
     hdline = []
     current_hd = 80.0
     for arsi_val in df['arsi']:
@@ -84,7 +73,7 @@ def calculate_indicators(df, length=14):
             hdline.append(current_hd)
     df['hdline'] = hdline
 
-    # 3. Tính toán các đường sóng Vortex và Longest Wave
+    # Vortex & Longest Wave
     vh_short_sma   = src.rolling(window=6).mean()
     vh_long_sma    = src.rolling(window=27).mean()
     vh_longer_sma  = src.rolling(window=72).mean()
@@ -95,15 +84,13 @@ def calculate_indicators(df, length=14):
     vh_longesth  = vh_short_sma - raw_longest_wave
     
     df['vh_vortex'] = (vh_hist / 3 + vh_longh / 2 + vh_longesth / 4) / 3
-    
-    # Chuẩn hóa Longest Wave thành dạng Oscillator đồng biên độ với Vortex Histogram
     df['longest_wave'] = ((src - raw_longest_wave) / raw_longest_wave) * 2000
     
     return df
 
-# Nút bấm bắt đầu quét dữ liệu đặt ngay đầu trang
+# Nút quét dữ liệu
 if st.button("🚀 Bắt đầu quét dữ liệu"):
-    with st.spinner(f"Đang phân tích kỹ thuật nâng cao {len(symbols)} mã..."):
+    with st.spinner("Đang tải dữ liệu và phân tích xung lực dòng tiền..."):
         matched_stocks = {}
         all_results = []
         current_date = datetime.now().strftime('%Y-%m-%d')
@@ -116,6 +103,7 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                 if df is None or df.empty or len(df) < 240:
                     continue
                 
+                # Ép phẳng MultiIndex nếu có và chuyển chữ thường
                 df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
                 df.columns = [col.lower() for col in df.columns]
                 
@@ -146,7 +134,7 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
             except:
                 continue
 
-        # --- PHẦN HIỂN THỊ KẾT QUẢ KÈM BIỂU ĐỒ ---
+        # --- HIỂN THỊ KẾT QUẢ ---
         if len(all_results) > 0:
             res_df = pd.DataFrame(all_results)
             
@@ -165,124 +153,40 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                 for ticker in display_df["Mã CP"]:
                     if ticker in matched_stocks:
                         chart_data = matched_stocks[ticker].copy()
-                        
                         fig = go.Figure()
                         
                         vortex_p = chart_data['vh_vortex'].clip(lower=0)
                         vortex_n = chart_data['vh_vortex'].clip(upper=0)
                         
-                        # 1. Vẽ mây mờ nền Xanh Dương (Vortex > 0)
-                        fig.add_trace(go.Scatter(
-                            x=chart_data.index, y=vortex_p,
-                            mode='lines', line=dict(width=0),
-                            fill='tozeroy', fillcolor='rgba(0, 180, 50, 0.08)',
-                            name='Mây Mua', yaxis='y1'
-                        ))
+                        fig.add_trace(go.Scatter(x=chart_data.index, y=vortex_p, mode='lines', line=dict(width=0), fill='tozeroy', fillcolor='rgba(0, 180, 50, 0.08)', yaxis='y1'))
+                        fig.add_trace(go.Scatter(x=chart_data.index, y=vortex_n, mode='lines', line=dict(width=0), fill='tozeroy', fillcolor='rgba(230, 30, 30, 0.08)', yaxis='y1'))
                         
-                        # 2. Vẽ mây mờ nền Đỏ (Vortex < 0)
-                        fig.add_trace(go.Scatter(
-                            x=chart_data.index, y=vortex_n,
-                            mode='lines', line=dict(width=0),
-                            fill='tozeroy', fillcolor='rgba(230, 30, 30, 0.08)',
-                            name='Mây Bán', yaxis='y1'
-                        ))
-                        
-                        # 3. Dựng các sọc dọc Histogram thanh mảnh liên tục đúng màu xu hướng
                         vortex_vals = chart_data['vh_vortex'].values
                         for i in range(len(vortex_vals)):
                             val = vortex_vals[i]
                             prev_val = vortex_vals[i-1] if i > 0 else 0
                             idx = chart_data.index[i]
-                            
-                            # Xác định màu sắc chuẩn động lượng
-                            if val >= 0:
-                                col = '#00aa3c' if val >= prev_val else '#81c784' 
-                            else:
-                                col = '#b71c1c' if val <= prev_val else '#e57373' 
-                                
-                            fig.add_trace(go.Scatter(
-                                x=[idx, idx], y=[0, val],
-                                mode='lines',
-                                line=dict(color=col, width=1.5),
-                                hoverinfo='skip', showlegend=False, yaxis='y1'
-                            ))
+                            col = '#00aa3c' if val >= prev_val else '#81c784' if val >= 0 else '#b71c1c' if val <= prev_val else '#e57373'
+                            fig.add_trace(go.Scatter(x=[idx, idx], y=[0, val], mode='lines', line=dict(color=col, width=1.5), hoverinfo='skip', showlegend=False, yaxis='y1'))
                         
-                        # 4. Vẽ đường LONGEST WAVE màu Xanh Cyan đậm nét dễ nhìn
-                        fig.add_trace(go.Scatter(
-                            x=chart_data.index, y=chart_data['longest_wave'],
-                            mode='lines', line=dict(color='#00b8d4', width=2, dash='solid'),
-                            name='Longest Wave', yaxis='y1'
-                        ))
+                        fig.add_trace(go.Scatter(x=chart_data.index, y=chart_data['longest_wave'], mode='lines', line=dict(color='#00b8d4', width=2), name='Longest Wave', yaxis='y1'))
+                        fig.add_trace(go.Scatter(x=chart_data.index, y=chart_data['arsi'], mode='lines', line=dict(color='#ff8f00', width=2), name='Augmented RSI', yaxis='y2'))
+                        fig.add_trace(go.Scatter(x=chart_data.index, y=chart_data['hdline'], mode='lines', line=dict(color='#c51162', width=1.5), name='HDLine', yaxis='y2'))
                         
-                        # 5. Vẽ đường AUGMENTED RSI màu cam rực rỡ
-                        fig.add_trace(go.Scatter(
-                            x=chart_data.index, y=chart_data['arsi'],
-                            mode='lines', line=dict(color='#ff8f00', width=2),
-                            name='Augmented RSI', yaxis='y2'
-                        ))
-                        
-                        # 6. Vẽ đường HDLINE giữ đỉnh màu hồng/tím đậm
-                        fig.add_trace(go.Scatter(
-                            x=chart_data.index, y=chart_data['hdline'],
-                            mode='lines', line=dict(color='#c51162', width=1.5),
-                            name='HDLine', yaxis='y2'
-                        ))
-                        
-                        # 7. Chấm tròn tín hiệu mua màu xanh sáng dưới đáy đồ thị
-                        sig_x = []
-                        sig_y = []
-                        for idx, row in chart_data.iterrows():
-                            if row['vh_vortex'] >= 0 and row['arsi'] > 80:
-                                sig_x.append(idx)
-                                sig_y.append(10)
-                                
+                        sig_x = [idx for idx, row in chart_data.iterrows() if row['vh_vortex'] >= 0 and row['arsi'] > 80]
                         if sig_x:
-                            fig.add_trace(go.Scatter(
-                                x=sig_x, y=sig_y,
-                                mode='markers', marker=dict(color='#00e676', size=9, symbol='circle'),
-                                name='Chấm Mua', yaxis='y2'
-                            ))
+                            fig.add_trace(go.Scatter(x=sig_x, y=[10]*len(sig_x), mode='markers', marker=dict(color='#00e676', size=9), name='Chấm Mua', yaxis='y2'))
                         
-                        # Thiết lập cấu hình hệ thống Đa trục
                         fig.update_layout(
-                            title=dict(
-                                text=f"📊 <b>{ticker}</b>",
-                                font=dict(size=22, color='#000000')
-                            ),
-                            template="plotly_white", 
-                            paper_bgcolor='rgba(0,0,0,0)', 
-                            plot_bgcolor='rgba(0,0,0,0)',
-                            height=360,
-                            margin=dict(l=40, r=40, t=60, b=20), 
-                            showlegend=False,
-                            xaxis=dict(
-                                showgrid=False,
-                                tickfont=dict(color='#333333')
-                            ),
-                            yaxis=dict(
-                                title=dict(
-                                    text="Vortex Pulse",
-                                    font=dict(color='#000000')
-                                ),
-                                side="left",
-                                showgrid=True,
-                                gridcolor='rgba(0,0,0,0.05)',
-                                tickfont=dict(color='#333333')
-                            ),
-                            yaxis2=dict(
-                                title=dict(
-                                    text="ARSI / HDLine",
-                                    font=dict(color='#000000')
-                                ),
-                                side="right",
-                                overlaying="y",
-                                range=[0, 110],
-                                showgrid=False,
-                                tickfont=dict(color='#333333')
-                            )
+                            title=dict(text=f"📊 <b>{ticker}</b>", font=dict(size=22, color='#000000')),
+                            template="plotly_white", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                            height=360, margin=dict(l=40, r=40, t=60, b=20), showlegend=False,
+                            xaxis=dict(showgrid=False),
+                            yaxis=dict(title="Vortex Pulse", side="left", showgrid=True, gridcolor='rgba(0,0,0,0.05)'),
+                            yaxis2=dict(title="ARSI / HDLine", side="right", overlaying="y", range=[0, 110], showgrid=False)
                         )
-                        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': 'hover'})
+                        st.plotly_chart(fig, use_container_width=True)
             else:
-                st.info("Hiện tại chưa tìm thấy mã nào bùng nổ thỏa mãn chấm tín hiệu xanh.")
+                st.info("Hiện tại chưa tìm thấy mã nào thỏa mãn chấm tín hiệu xanh.")
         else:
-            st.error("Không lấy được dữ liệu thị trường, vui lòng nhấn quét lại.")
+            st.error("Không lấy được dữ liệu thị trường, vui lòng quét lại.")
