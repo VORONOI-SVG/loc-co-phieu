@@ -4,6 +4,7 @@ import numpy as np
 import yfinance as yf
 from datetime import datetime
 import plotly.graph_objects as go
+import time
 
 # 1. CẤU HÌNH TRANG - Bắt buộc là lệnh Streamlit đầu tiên
 st.set_page_config(page_title="Bộ Lọc TradingView Khủng", layout="centered")
@@ -39,7 +40,6 @@ def rma(series, period):
     return series.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
 
 def calculate_indicators(df, length=14):
-    # Đảm bảo series trích xuất là 1D phẳng
     src = pd.Series(df['close'].values.flatten(), index=df.index)
     
     upper = src.rolling(window=length).max()
@@ -85,23 +85,21 @@ def calculate_indicators(df, length=14):
     return df
 
 if st.button("🚀 Bắt đầu quét dữ liệu"):
-    with st.spinner("Đang kết nối API và phân tích dữ liệu kỹ thuật..."):
+    with st.spinner("Đang kết nối cổng dữ liệu tài chính ổn định..."):
         matched_stocks = {}
         all_results = []
-        current_date = datetime.now().strftime('%Y-%m-%d')
         
+        # Sử dụng đối tượng Ticker và hàm history() để tăng độ ổn định tuyệt đối
         for ticker in symbols:
             try:
                 yahoo_ticker = f"{ticker}.VN"
-                raw_df = yf.download(yahoo_ticker, period="3y", end=current_date, progress=False)
+                stock_obj = yf.Ticker(yahoo_ticker)
+                raw_df = stock_obj.history(period="3y", interval="1d")
                 
                 if raw_df is None or raw_df.empty or len(raw_df) < 240:
                     continue
                 
-                # Ép phẳng cấu hình đa tầng (MultiIndex) của yfinance mới
                 df = raw_df.copy()
-                if isinstance(df.columns, pd.MultiIndex):
-                    df.columns = df.columns.get_level_values(0)
                 df.columns = [str(col).lower() for col in df.columns]
                 
                 df = calculate_indicators(df)
@@ -128,7 +126,9 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                     matched_stocks[ticker] = df.tail(60)
                 elif filter_mode == "Chỉ hiện mã thỏa điều kiện MUA" and combined_signal == "🟢 MUA":
                     matched_stocks[ticker] = df.tail(60)
-                    
+                
+                # Delay cực ngắn để tránh bị Yahoo giới hạn băng thông (Rate limit)
+                time.sleep(0.05)
             except:
                 continue
 
@@ -187,4 +187,4 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
             else:
                 st.info("Hiện tại chưa tìm thấy mã nào thỏa mãn chấm tín hiệu xanh.")
         else:
-            st.error("Không lấy được dữ liệu thị trường, vui lòng quét lại.")
+            st.error("Không lấy được dữ liệu thị trường từ hệ thống Yahoo Finance, vui lòng nhấn quét lại.")
