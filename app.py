@@ -187,13 +187,14 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                             name='Mây Bán', yaxis='y1'
                         ))
                         
-                        # 3. Dựng các sọc dọc Histogram
+                        # 3. Dựng các sọc dọc Histogram thanh mảnh liên tục đúng màu xu hướng
                         vortex_vals = chart_data['vh_vortex'].values
                         for i in range(len(vortex_vals)):
                             val = vortex_vals[i]
                             prev_val = vortex_vals[i-1] if i > 0 else 0
                             idx = chart_data.index[i]
                             
+                            # Xác định màu sắc chuẩn động lượng
                             if val >= 0:
                                 col = '#00aa3c' if val >= prev_val else '#81c784' 
                             else:
@@ -206,28 +207,28 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                                 hoverinfo='skip', showlegend=False, yaxis='y1'
                             ))
                         
-                        # 4. Vẽ đường LONGEST WAVE
+                        # 4. Vẽ đường LONGEST WAVE màu Xanh Cyan đậm nét dễ nhìn
                         fig.add_trace(go.Scatter(
                             x=chart_data.index, y=chart_data['longest_wave'],
                             mode='lines', line=dict(color='#00b8d4', width=2, dash='solid'),
                             name='Longest Wave', yaxis='y1'
                         ))
                         
-                        # 5. Vẽ đường AUGMENTED RSI
+                        # 5. Vẽ đường AUGMENTED RSI màu cam rực rỡ
                         fig.add_trace(go.Scatter(
                             x=chart_data.index, y=chart_data['arsi'],
                             mode='lines', line=dict(color='#ff8f00', width=2),
                             name='Augmented RSI', yaxis='y2'
                         ))
                         
-                        # 6. Vẽ đường HDLINE
+                        # 6. Vẽ đường HDLINE giữ đỉnh màu hồng/tím đậm
                         fig.add_trace(go.Scatter(
                             x=chart_data.index, y=chart_data['hdline'],
                             mode='lines', line=dict(color='#c51162', width=1.5),
                             name='HDLine', yaxis='y2'
                         ))
                         
-                        # 7. Chấm tròn tín hiệu mua
+                        # 7. Chấm tròn tín hiệu mua màu xanh sáng dưới đáy đồ thị
                         sig_x = []
                         sig_y = []
                         for idx, row in chart_data.iterrows():
