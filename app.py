@@ -4,6 +4,7 @@ import numpy as np
 import yfinance as yf
 from datetime import datetime
 import plotly.graph_objects as go
+import time
 
 # 1. CẤU HÌNH TRANG - Bắt buộc là lệnh Streamlit đầu tiên
 st.set_page_config(page_title="Bộ Lọc TradingView Khủng", layout="centered")
@@ -91,11 +92,49 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
         
         # Tạo danh sách mã có kèm hậu tố .VN
         tickers_list = [f"{s}.VN" for s in symbols]
-        
+
+        # Tải theo từng lô nhỏ (tránh bị Yahoo Finance chặn/429 khi tải quá nhiều mã cùng lúc)
+        BATCH_SIZE = 20
+        batches = [tickers_list[i:i + BATCH_SIZE] for i in range(0, len(tickers_list), BATCH_SIZE)]
+
+        raw_data_list = []
+        download_errors = []
+        progress_bar = st.progress(0, text="Đang tải dữ liệu theo từng lô...")
+
+        for b_idx, batch in enumerate(batches):
+            success = False
+            for attempt in range(3):  # thử lại tối đa 3 lần mỗi lô
+                try:
+                    part = yf.download(
+                        batch,
+                        period="3y",
+                        end=current_date,
+                        progress=False,
+                        auto_adjust=True,
+                        threads=False,  # giảm tốc độ gọi để tránh bị rate-limit
+                    )
+                    if part is not None and not part.empty:
+                        raw_data_list.append(part)
+                    success = True
+                    break
+                except Exception as e:
+                    download_errors.append(f"Lô {b_idx+1} (thử {attempt+1}/3): {e}")
+                    time.sleep(2 * (attempt + 1))  # tăng dần thời gian nghỉ trước khi thử lại
+            if not success:
+                download_errors.append(f"Lô {b_idx+1} thất bại sau 3 lần thử.")
+            progress_bar.progress((b_idx + 1) / len(batches), text=f"Đã tải {b_idx+1}/{len(batches)} lô...")
+            time.sleep(1.5)  # nghỉ giữa các lô để tránh bị chặn
+
+        progress_bar.empty()
+
+        if download_errors:
+            with st.expander("⚠️ Chi tiết lỗi khi tải dữ liệu (bấm để xem)"):
+                for err in download_errors:
+                    st.write(err)
+
+        raw_data = pd.concat(raw_data_list, axis=1) if raw_data_list else None
+
         try:
-            # Tải dữ liệu hàng loạt nâng cao, trả về định dạng phẳng (group_by không bắt buộc để tránh lỗi tầng)
-            raw_data = yf.download(tickers_list, period="3y", end=current_date, progress=False)
-            
             if raw_data is not None and not raw_data.empty:
                 for ticker in symbols:
                     try:
@@ -148,7 +187,7 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                     except:
                         continue
         except Exception as e:
-            pass
+            st.error(f"Lỗi xử lý dữ liệu sau khi tải: {e}")
 
         # --- HIỂN THỊ KẾT QUẢ KÈM ĐỒ THỊ ---
         if len(all_results) > 0:
