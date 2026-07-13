@@ -1,6 +1,7 @@
 streamlit==1.35.0
 pandas==2.2.2
 numpy==1.26.4
-yfinance==0.2.40
+yfinance==0.2.66
+curl_cffi>=0.7.3
 plotly==5.22.0
 scikit-learn==1.5.0
