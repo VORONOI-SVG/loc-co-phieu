@@ -95,55 +95,53 @@ def calculate_indicators(df, length=14):
 
     return df
 
+@st.cache_data(ttl=1800, show_spinner=False)
+def download_batches(tickers_list, current_date):
+    """Tải dữ liệu theo từng lô nhỏ, cache trong 30 phút để tránh gọi Yahoo Finance
+    quá nhiều lần liên tiếp (nguyên nhân chính gây lỗi Rate Limit / bị chặn IP)."""
+    BATCH_SIZE = 15
+    batches = [tickers_list[i:i + BATCH_SIZE] for i in range(0, len(tickers_list), BATCH_SIZE)]
+
+    raw_data_list = []
+    download_errors = []
+
+    for b_idx, batch in enumerate(batches):
+        try:
+            part = yf.download(
+                batch,
+                period="3y",
+                end=current_date,
+                progress=False,
+                auto_adjust=True,
+                threads=False,  # giảm tốc độ gọi để tránh bị rate-limit
+            )
+            if part is not None and not part.empty:
+                raw_data_list.append(part)
+        except Exception as e:
+            download_errors.append(f"Lô {b_idx + 1}: {e}")
+        time.sleep(3)  # nghỉ giữa các lô để tránh bị Yahoo chặn (không retry ngay để tránh bị chặn nặng hơn)
+
+    raw_data = pd.concat(raw_data_list, axis=1) if raw_data_list else None
+    return raw_data, download_errors, len(batches)
+
+
 if st.button("🚀 Bắt đầu quét dữ liệu"):
-    with st.spinner("Đang kết nối API Yahoo Finance và xử lý dữ liệu..."):
+    with st.spinner("Đang kết nối API Yahoo Finance và xử lý dữ liệu (dữ liệu được cache 30 phút để tránh bị chặn)..."):
         matched_stocks = {}
         all_results = []
         current_date = datetime.now().strftime('%Y-%m-%d')
-        
+
         # Tạo danh sách mã có kèm hậu tố .VN
-        tickers_list = [f"{s}.VN" for s in symbols]
+        tickers_list = tuple(f"{s}.VN" for s in symbols)
 
-        # Tải theo từng lô nhỏ (tránh bị Yahoo Finance chặn/429 khi tải quá nhiều mã cùng lúc)
-        BATCH_SIZE = 20
-        batches = [tickers_list[i:i + BATCH_SIZE] for i in range(0, len(tickers_list), BATCH_SIZE)]
-
-        raw_data_list = []
-        download_errors = []
-        progress_bar = st.progress(0, text="Đang tải dữ liệu theo từng lô...")
-
-        for b_idx, batch in enumerate(batches):
-            success = False
-            for attempt in range(3):  # thử lại tối đa 3 lần mỗi lô
-                try:
-                    part = yf.download(
-                        batch,
-                        period="3y",
-                        end=current_date,
-                        progress=False,
-                        auto_adjust=True,
-                        threads=False,  # giảm tốc độ gọi để tránh bị rate-limit
-                    )
-                    if part is not None and not part.empty:
-                        raw_data_list.append(part)
-                    success = True
-                    break
-                except Exception as e:
-                    download_errors.append(f"Lô {b_idx+1} (thử {attempt+1}/3): {e}")
-                    time.sleep(2 * (attempt + 1))  # tăng dần thời gian nghỉ trước khi thử lại
-            if not success:
-                download_errors.append(f"Lô {b_idx+1} thất bại sau 3 lần thử.")
-            progress_bar.progress((b_idx + 1) / len(batches), text=f"Đã tải {b_idx+1}/{len(batches)} lô...")
-            time.sleep(1.5)  # nghỉ giữa các lô để tránh bị chặn
-
-        progress_bar.empty()
+        raw_data, download_errors, n_batches = download_batches(tickers_list, current_date)
 
         if download_errors:
-            with st.expander("⚠️ Chi tiết lỗi khi tải dữ liệu (bấm để xem)"):
+            with st.expander(f"⚠️ Chi tiết lỗi khi tải dữ liệu ({len(download_errors)}/{n_batches} lô lỗi — bấm để xem)"):
                 for err in download_errors:
                     st.write(err)
-
-        raw_data = pd.concat(raw_data_list, axis=1) if raw_data_list else None
+                st.info("Nếu thấy nhiều lỗi 'Rate limited', Yahoo Finance đang tạm chặn IP của Streamlit Cloud. "
+                        "Kết quả đã được cache 30 phút — hãy đợi một lúc rồi bấm quét lại thay vì bấm liên tục.")
 
         try:
             if raw_data is not None and not raw_data.empty:
