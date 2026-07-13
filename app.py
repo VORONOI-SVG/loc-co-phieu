@@ -59,6 +59,7 @@ def calculate_indicators(df, length=14):
     df['arsi'] = (arsi_num / arsi_den.replace(0, np.nan)) * 50 + 50
 
     # ── Section 10 (Vortex Histogram) — CHỈ dùng để xét tín hiệu MUA, không vẽ ──
+    # (đúng công thức: vh_vortex = avg(hist/3, longh/2, longesth/4), không chia cho giá)
     vh_short_sma   = src.rolling(window=6).mean()
     vh_long_sma    = src.rolling(window=27).mean()
     vh_longer_sma  = src.rolling(window=72).mean()
@@ -71,6 +72,7 @@ def calculate_indicators(df, length=14):
     df['vh_vortex'] = (vh_hist / 3 + vh_longh / 2 + vh_longesth / 4) / 3
 
     # ── Section 12 (Vortex Oscillator Waves) — công thức thật của "sóng Vortex liên tục"
+    # dùng để VẼ đồ thị, đúng như trên TradingView: chia cho close, nhân hệ số scaler=150 ──
     scaler = 150.0
     vo_s   = vh_short_sma
     vo_l   = vh_long_sma
@@ -99,6 +101,7 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
         all_results = []
         current_date = datetime.now().strftime('%Y-%m-%d')
         
+        # Tạo danh sách mã có kèm hậu tố .VN
         tickers_list = [f"{s}.VN" for s in symbols]
 
         # Tải theo từng lô nhỏ (tránh bị Yahoo Finance chặn/429 khi tải quá nhiều mã cùng lúc)
@@ -123,8 +126,8 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                     )
                     if part is not None and not part.empty:
                         raw_data_list.append(part)
-                        success = True
-                        break
+                    success = True
+                    break
                 except Exception as e:
                     download_errors.append(f"Lô {b_idx+1} (thử {attempt+1}/3): {e}")
                     time.sleep(2 * (attempt + 1))  # tăng dần thời gian nghỉ trước khi thử lại
@@ -149,23 +152,16 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                         yahoo_code = f"{ticker}.VN"
                         df = pd.DataFrame(index=raw_data.index)
                         
-                        # --- ĐOẠN ĐÃ SỬA: Bảo vệ đa tầng và bóc tách dữ liệu chống lỗi sập bảng ---
+                        # Trích xuất dữ liệu đa tầng linh hoạt (chống lỗi định dạng cột của yfinance)
                         if isinstance(raw_data.columns, pd.MultiIndex):
-                            # Kiểm tra linh hoạt sự tồn tại của cặp cột (Price, Ticker) để tránh KeyError gãy app
-                            if ('Close', yahoo_code) in raw_data.columns:
-                                df['close'] = raw_data[('Close', yahoo_code)]
-                            elif (yahoo_code, 'Close') in raw_data.columns:
+                            if yahoo_code in raw_data.columns.levels[0]:
                                 df['close'] = raw_data[(yahoo_code, 'Close')]
-                            elif hasattr(raw_data.columns, 'levels') and len(raw_data.columns.levels) > 1:
-                                if yahoo_code in raw_data.columns.levels[0] and 'Close' in raw_data.columns.levels[1]:
-                                    df['close'] = raw_data[(yahoo_code, 'Close')]
-                                elif 'Close' in raw_data.columns.levels[0] and yahoo_code in raw_data.columns.levels[1]:
-                                    df['close'] = raw_data[('Close', yahoo_code)]
-                                else:
-                                    continue
+                            elif yahoo_code in raw_data.columns.levels[1]:
+                                df['close'] = raw_data[('Close', yahoo_code)]
                             else:
                                 continue
                         else:
+                            # Trường hợp yfinance chỉ trả về 1 mã do các mã khác bị lọc sạch
                             if 'Close' in raw_data.columns:
                                 df['close'] = raw_data['Close']
                             else:
@@ -176,9 +172,7 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                             continue
                             
                         df = calculate_indicators(df)
-                        if df is None:
-                            continue
-                            
+                        
                         latest = df.iloc[-1]
                         arsi_val = float(latest['arsi']) if not pd.isna(latest['arsi']) else 0.0
                         vortex_val = float(latest['vh_vortex']) if not pd.isna(latest['vh_vortex']) else 0.0
@@ -228,7 +222,7 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                         fig = go.Figure()
                         x = chart_data.index
 
-                        # ── Section 12: Longest / Longer / Short Wave ──
+                        # ── Section 12: Longest / Longer / Short Wave (area, đúng công thức TradingView) ──
                         fig.add_trace(go.Scatter(
                             x=x, y=(chart_data['vo_longest'] * 5).values.flatten(),
                             mode='lines', line=dict(width=1, color='#008080'),
@@ -245,7 +239,7 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                             fill='tozeroy', fillcolor='rgba(255, 0, 255, 0.20)',
                             name='Short Wave', yaxis='y1'))
 
-                        # ── Vortex Main ──
+                        # ── Vortex Main: sóng Vortex liên tục, xanh khi >=0, đỏ khi <0 (đúng Section 12) ──
                         vortex_main = (chart_data['vo_vortexhist'] * 5).values.flatten()
                         vortex_main_pos = np.where(vortex_main >= 0, vortex_main, np.nan)
                         vortex_main_neg = np.where(vortex_main < 0, vortex_main, np.nan)
@@ -258,13 +252,13 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                             fill='tozeroy', fillcolor='rgba(200, 0, 0, 0.35)',
                             name='Vortex Main (Giảm)', yaxis='y1'))
 
-                        # ── Micro EMA ──
+                        # ── Micro EMA (đường trắng mảnh phủ lên Vortex Main) ──
                         fig.add_trace(go.Scatter(
                             x=x, y=(chart_data['micro_ema'] * 5).values.flatten(),
                             mode='lines', line=dict(color='#eeeeee', width=1),
                             name='Micro EMA', yaxis='y1'))
 
-                        # ── Augmented RSI + ngưỡng quá mua 80 ──
+                        # ── Augmented RSI + ngưỡng quá mua 80 (hline tĩnh, đúng Pine, không phải HDLine giả) ──
                         fig.add_trace(go.Scatter(
                             x=x, y=chart_data['arsi'].values.flatten(),
                             mode='lines', line=dict(color='#ff8f00', width=2),
@@ -274,7 +268,7 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                             mode='lines', line=dict(color='#089981', width=1, dash='dot'),
                             name='ARSI Overbought (80)', yaxis='y2'))
 
-                        # ── Chấm tín hiệu MUA ──
+                        # ── Chấm tín hiệu MUA (Section 11: vh_vortex >= 0 và arsi > 80) ──
                         sig_x = [idx for idx, row in chart_data.iterrows()
                                  if float(row['vh_vortex']) >= 0 and float(row['arsi']) > 80]
                         if sig_x:
