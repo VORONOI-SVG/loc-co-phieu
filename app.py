@@ -11,17 +11,17 @@ st.set_page_config(page_title="Bộ Lọc TradingView Khủng", layout="centered
 st.title("🚀 Bộ Lọc & Biểu Đồ Kỹ Thuật KT2 Multi Pro")
 st.write("Đồng bộ hiển thị: Sóng Vortex liên tục, đường Longest Wave và HDLine chuẩn TradingView")
 
-# Danh sách 150 mã cổ phiếu tốt và thanh khoản cao trên thị trường Việt Nam
+# Danh sách 150 mã cổ phiếu đã chuẩn hóa (loại bỏ hoàn toàn các mã lỗi ký tự '_')
 symbols = [
     # 1. NHÓM NGÂN HÀNG (BANK)
     'OCB', 'VCB', 'TCB', 'STB', 'MBB', 'ACB', 'BID', 'CTG', 'VPB', 'HDB', 
     'VIB', 'LPB', 'SHB', 'TPB', 'MSB', 'BAB', 'EIB', 'NAB', 'SSB', 'BVB', 
-    'ABB', 'PGB', 'HDB', 'KLB', 'SGB', 'VAB',
+    'ABB', 'PGB', 'KLB', 'SGB', 'VAB',
     # 2. NHÓM CHỨNG KHOÁN
     'SSI', 'VND', 'VCI', 'HCM', 'FTS', 'BSI', 'MBS', 'SHS', 'AGR', 'CTS', 
     'VIX', 'ORS', 'BVS', 'TVSI', 'VDS', 'TCI', 'PSI', 'APG', 'SBS', 'WSS',
     # 3. NHÓM THÉP & KIM LOẠI
-    'HPG', 'HSG', 'NKG', 'VGS', 'SMC', 'TLH', 'POM', 'TVN', 'K_K', 'T_L',
+    'HPG', 'HSG', 'NKG', 'VGS', 'SMC', 'TLH', 'POM', 'TVN', 'KKC', 'VNS',
     # 4. NHÓM BẤT ĐỘNG SẢN DÂN CƯ
     'VIC', 'VHM', 'VRE', 'NVL', 'PDR', 'DIG', 'CEO', 'DXG', 'KDH', 'NLG', 
     'VPI', 'DXS', 'HQC', 'IJC', 'LDG', 'SCR', 'TCH', 'ITA', 'HDG', 'CRE', 
@@ -30,16 +30,16 @@ symbols = [
     'KBC', 'IDC', 'SZC', 'VGC', 'LHG', 'TIP', 'PHR', 'DPR', 'D2D', 'SIP',
     # 6. NHÓM CÔNG NGHỆ, BÁN LẺ & TIÊU DÙNG
     'FPT', 'MWG', 'FRT', 'DGW', 'PNJ', 'VNM', 'MSN', 'SAB', 'MCH', 'VTP', 
-    'PET', 'CMG', 'ELA', 'KDC', 'VOC', 'VRE', 'HAX', 'S_F',
+    'PET', 'CMG', 'ELA', 'KDC', 'VOC', 'HAX', 'SMC',
     # 7. NHÓM DẦU KHÍ, NĂNG LƯỢNG & ĐIỆN
     'GAS', 'PVD', 'PVS', 'POW', 'PC1', 'GEG', 'PVT', 'BSR', 'OIL', 'NT2', 
-    'QTP', 'TV2', 'HND', 'VSH', 'S_G',
+    'QTP', 'TV2', 'HND', 'VSH', 'SAM',
     # 8. NHÓM HÓA CHẤT, PHÂN BÓN & CAO SU
-    'DGC', 'DPM', 'DCM', 'CSV', 'BFC', 'GVR', 'DRI', 'DDV', 'LAS', 'AA_H',
+    'DGC', 'DPM', 'DCM', 'CSV', 'BFC', 'GVR', 'DRI', 'DDV', 'LAS', 'APH',
     # 9. NHÓM ĐẦU TƯ CÔNG, XÂY DỰNG & VẬT LIỆU
-    'HHV', 'LCG', 'VJ_G', 'C4G', 'FCN', 'VCG', 'CI_O', 'HT1', 'BCC', 'KSB',
+    'HHV', 'LCG', 'VJC', 'C4G', 'FCN', 'VCG', 'CII', 'HT1', 'BCC', 'KSB',
     # 10. NHÓM THỦY SẢN, NÔNG NGHIỆP & DỆT MAY
-    'ANV', 'VHC', 'DBC', 'PAN', 'TNG', 'MSH', 'FMC', 'CMX', 'IDI', 'BAF', 'H_G'
+    'ANV', 'VHC', 'DBC', 'PAN', 'TNG', 'MSH', 'FMC', 'CMX', 'IDI', 'BAF', 'HNG'
 ]
 
 # Loại bỏ các mã trùng lặp nếu vô tình khai báo đúp và sắp xếp lại theo thứ tự ABC
@@ -168,7 +168,6 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                         
                         fig = go.Figure()
                         
-                        # Tách biệt mây mờ nền mặt đất thành 2 vùng Dương (Xanh) và Âm (Đỏ)
                         vortex_p = chart_data['vh_vortex'].clip(lower=0)
                         vortex_n = chart_data['vh_vortex'].clip(upper=0)
                         
@@ -188,14 +187,13 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                             name='Mây Bán', yaxis='y1'
                         ))
                         
-                        # 3. Dựng các sọc dọc Histogram thanh mảnh liên tục đúng màu xu hướng
+                        # 3. Dựng các sọc dọc Histogram
                         vortex_vals = chart_data['vh_vortex'].values
                         for i in range(len(vortex_vals)):
                             val = vortex_vals[i]
                             prev_val = vortex_vals[i-1] if i > 0 else 0
                             idx = chart_data.index[i]
                             
-                            # Xác định màu sắc chuẩn động lượng
                             if val >= 0:
                                 col = '#00aa3c' if val >= prev_val else '#81c784' 
                             else:
@@ -208,28 +206,28 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                                 hoverinfo='skip', showlegend=False, yaxis='y1'
                             ))
                         
-                        # 4. Vẽ đường LONGEST WAVE màu Xanh Cyan đậm nét dễ nhìn trên nền trắng
+                        # 4. Vẽ đường LONGEST WAVE
                         fig.add_trace(go.Scatter(
                             x=chart_data.index, y=chart_data['longest_wave'],
                             mode='lines', line=dict(color='#00b8d4', width=2, dash='solid'),
                             name='Longest Wave', yaxis='y1'
                         ))
                         
-                        # 5. Vẽ đường AUGMENTED RSI màu cam rực rỡ
+                        # 5. Vẽ đường AUGMENTED RSI
                         fig.add_trace(go.Scatter(
                             x=chart_data.index, y=chart_data['arsi'],
                             mode='lines', line=dict(color='#ff8f00', width=2),
                             name='Augmented RSI', yaxis='y2'
                         ))
                         
-                        # 6. Vẽ đường HDLINE giữ đỉnh màu hồng/tím đậm
+                        # 6. Vẽ đường HDLINE
                         fig.add_trace(go.Scatter(
                             x=chart_data.index, y=chart_data['hdline'],
                             mode='lines', line=dict(color='#c51162', width=1.5),
                             name='HDLine', yaxis='y2'
                         ))
                         
-                        # 7. Chấm tròn tín hiệu mua màu xanh sáng dưới đáy đồ thị
+                        # 7. Chấm tròn tín hiệu mua
                         sig_x = []
                         sig_y = []
                         for idx, row in chart_data.iterrows():
@@ -244,11 +242,11 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                                 name='Chấm Mua', yaxis='y2'
                             ))
                         
-                        # Thiết lập cấu hình hệ thống Đa trục chuẩn hóa hoàn toàn dictionary
+                        # Thiết lập cấu hình hệ thống Đa trục
                         fig.update_layout(
                             title=dict(
                                 text=f"📊 <b>{ticker}</b>",
-                                font=dict(size=22, color='#000000') # Tên mã màu ĐEN nét căng
+                                font=dict(size=22, color='#000000')
                             ),
                             template="plotly_white", 
                             paper_bgcolor='rgba(0,0,0,0)', 
