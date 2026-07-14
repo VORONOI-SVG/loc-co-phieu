@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import yfinance as yf
-from datetime import datetime
+from vnstock import Quote
+from datetime import datetime, timedelta
 import plotly.graph_objects as go
 import time
 
@@ -96,81 +96,67 @@ def calculate_indicators(df, length=14):
     return df
 
 @st.cache_data(ttl=1800, show_spinner=False)
-def download_batches(tickers_list, current_date):
-    """Tải dữ liệu theo từng lô nhỏ, cache trong 30 phút để tránh gọi Yahoo Finance
-    quá nhiều lần liên tiếp (nguyên nhân chính gây lỗi Rate Limit / bị chặn IP)."""
-    BATCH_SIZE = 15
-    batches = [tickers_list[i:i + BATCH_SIZE] for i in range(0, len(tickers_list), BATCH_SIZE)]
+def fetch_all_stocks(symbols_tuple, start_date, end_date, _progress_bar=None):
+    """Tải dữ liệu từng mã một qua vnstock (nguồn VCI — chuyên biệt cho chứng khoán VN,
+    không bị chặn IP dùng chung như Yahoo Finance). Cache 30 phút để không gọi lại
+    liên tục. Có nghỉ giữa các lần gọi để tuân thủ giới hạn ~20 request/phút (miễn phí,
+    không cần đăng ký tài khoản)."""
+    results = {}
+    errors = []
+    total = len(symbols_tuple)
 
-    raw_data_list = []
-    download_errors = []
-
-    for b_idx, batch in enumerate(batches):
+    for i, sym in enumerate(symbols_tuple):
         try:
-            part = yf.download(
-                batch,
-                period="3y",
-                end=current_date,
-                progress=False,
-                auto_adjust=True,
-                threads=False,  # giảm tốc độ gọi để tránh bị rate-limit
-            )
-            if part is not None and not part.empty:
-                raw_data_list.append(part)
+            df = Quote(symbol=sym, source='VCI').history(start=start_date, end=end_date, interval='1D')
+            if df is not None and not df.empty:
+                df = df.rename(columns={'time': 'date'})
+                df['date'] = pd.to_datetime(df['date'])
+                df = df.set_index('date').sort_index()
+                if 'close' in df.columns:
+                    results[sym] = df[['close']].copy()
         except Exception as e:
-            download_errors.append(f"Lô {b_idx + 1}: {e}")
-        time.sleep(3)  # nghỉ giữa các lô để tránh bị Yahoo chặn (không retry ngay để tránh bị chặn nặng hơn)
+            errors.append(f"{sym}: {e}")
 
-    raw_data = pd.concat(raw_data_list, axis=1) if raw_data_list else None
-    return raw_data, download_errors, len(batches)
+        if _progress_bar is not None:
+            _progress_bar.progress((i + 1) / total, text=f"Đang tải {sym} ({i + 1}/{total})...")
+
+        time.sleep(3.2)  # tuân thủ giới hạn ~20 request/phút của vnstock bản miễn phí
+
+    return results, errors
 
 
 if st.button("🚀 Bắt đầu quét dữ liệu"):
-    with st.spinner("Đang kết nối API Yahoo Finance và xử lý dữ liệu (dữ liệu được cache 30 phút để tránh bị chặn)..."):
+    st.info("⏳ Việc quét 150 mã qua vnstock mất khoảng 8-10 phút do phải tuân thủ giới hạn tốc độ gọi API miễn phí. "
+            "Kết quả sẽ được cache 30 phút, các lần quét lại sau đó sẽ nhanh hơn nhiều.")
+    with st.spinner("Đang kết nối vnstock và xử lý dữ liệu..."):
         matched_stocks = {}
         all_results = []
-        current_date = datetime.now().strftime('%Y-%m-%d')
+        end_date = datetime.now().strftime('%Y-%m-%d')
+        start_date = (datetime.now() - timedelta(days=3 * 365)).strftime('%Y-%m-%d')
 
-        # Tạo danh sách mã có kèm hậu tố .VN
-        tickers_list = tuple(f"{s}.VN" for s in symbols)
+        symbols_tuple = tuple(symbols)
+        progress_bar = st.progress(0, text="Chuẩn bị tải dữ liệu...")
 
-        raw_data, download_errors, n_batches = download_batches(tickers_list, current_date)
+        stock_data, fetch_errors = fetch_all_stocks(symbols_tuple, start_date, end_date, _progress_bar=progress_bar)
+        progress_bar.empty()
 
-        if download_errors:
-            with st.expander(f"⚠️ Chi tiết lỗi khi tải dữ liệu ({len(download_errors)}/{n_batches} lô lỗi — bấm để xem)"):
-                for err in download_errors:
+        if fetch_errors:
+            with st.expander(f"⚠️ Chi tiết lỗi khi tải dữ liệu ({len(fetch_errors)}/{len(symbols)} mã lỗi — bấm để xem)"):
+                for err in fetch_errors:
                     st.write(err)
-                st.info("Nếu thấy nhiều lỗi 'Rate limited', Yahoo Finance đang tạm chặn IP của Streamlit Cloud. "
-                        "Kết quả đã được cache 30 phút — hãy đợi một lúc rồi bấm quét lại thay vì bấm liên tục.")
 
         try:
-            if raw_data is not None and not raw_data.empty:
+            if stock_data:
                 for ticker in symbols:
                     try:
-                        yahoo_code = f"{ticker}.VN"
-                        df = pd.DataFrame(index=raw_data.index)
-                        
-                        # Trích xuất dữ liệu đa tầng linh hoạt (chống lỗi định dạng cột của yfinance)
-                        if isinstance(raw_data.columns, pd.MultiIndex):
-                            if yahoo_code in raw_data.columns.levels[0]:
-                                df['close'] = raw_data[(yahoo_code, 'Close')]
-                            elif yahoo_code in raw_data.columns.levels[1]:
-                                df['close'] = raw_data[('Close', yahoo_code)]
-                            else:
-                                continue
-                        else:
-                            # Trường hợp yfinance chỉ trả về 1 mã do các mã khác bị lọc sạch
-                            if 'Close' in raw_data.columns:
-                                df['close'] = raw_data['Close']
-                            else:
-                                continue
-                                
-                        df = df.dropna(subset=['close']).copy()
+                        if ticker not in stock_data:
+                            continue
+                        df = stock_data[ticker].dropna(subset=['close']).copy()
                         if len(df) < 240:
                             continue
-                            
+
                         df = calculate_indicators(df)
-                        
+
                         latest = df.iloc[-1]
                         arsi_val = float(latest['arsi']) if not pd.isna(latest['arsi']) else 0.0
                         vortex_val = float(latest['vh_vortex']) if not pd.isna(latest['vh_vortex']) else 0.0
@@ -289,4 +275,4 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
             else:
                 st.info("Hiện tại chưa tìm thấy mã nào thỏa mãn chấm tín hiệu xanh.")
         else:
-            st.error("Không lấy được dữ liệu thị trường từ hệ thống Yahoo Finance, vui lòng thử nhấn quét lại.")
+            st.error("Không lấy được dữ liệu thị trường từ vnstock, vui lòng thử nhấn quét lại sau ít phút.")
