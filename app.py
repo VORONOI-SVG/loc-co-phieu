@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from vnstock import Quote
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 import plotly.graph_objects as go
 import time
 
@@ -131,8 +132,13 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
     with st.spinner("Đang kết nối vnstock và xử lý dữ liệu..."):
         matched_stocks = {}
         all_results = []
-        end_date = datetime.now().strftime('%Y-%m-%d')
-        start_date = (datetime.now() - timedelta(days=3 * 365)).strftime('%Y-%m-%d')
+
+        # Tính ngày theo giờ Việt Nam (server chạy giờ UTC nên không dùng datetime.now() trực tiếp),
+        # và xin dư +1 ngày cho end_date để tránh bị thiếu dữ liệu mới nhất nếu tham số 'end' của
+        # vnstock không bao gồm chính ngày kết thúc.
+        vn_now = datetime.now(ZoneInfo("Asia/Ho_Chi_Minh"))
+        end_date = (vn_now + timedelta(days=1)).strftime('%Y-%m-%d')
+        start_date = (vn_now - timedelta(days=3 * 365)).strftime('%Y-%m-%d')
 
         symbols_tuple = tuple(symbols)
         progress_bar = st.progress(0, text="Chuẩn bị tải dữ liệu...")
@@ -168,6 +174,7 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                         
                         res_item = {
                             "Mã CP": ticker,
+                            "Ngày dữ liệu": df.index[-1].strftime('%d/%m/%Y'),
                             "Giá Đóng (VNĐ)": round(close_val, 0),
                             "Augmented RSI": round(arsi_val, 2),
                             "Vortex Histo Wave": round(vortex_val, 2),
