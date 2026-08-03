@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import plotly.graph_objects as go
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 # ── QUAN TRỌNG: chỉ áp timeout cho các request HTTP (thư viện requests mà
 # vnstock dùng bên dưới), KHÔNG dùng socket.setdefaulttimeout() toàn cục —
@@ -53,6 +54,14 @@ symbols = sorted(list(set(symbols)))
 
 filter_mode = st.sidebar.selectbox("Chế độ hiển thị:", ["Chỉ hiện mã thỏa điều kiện MUA", "Hiện tất cả danh sách (150 mã)"])
 
+skip_input = st.sidebar.text_input(
+    "Mã bỏ qua (cách nhau bởi dấu phẩy):",
+    value="APG",
+    help="Các mã này sẽ được bỏ qua ngay lập tức, không gọi API, để tránh bị kẹt "
+         "nếu mã đó đang bị VCI từ chối kết nối."
+)
+skip_symbols = {s.strip().upper() for s in skip_input.split(",") if s.strip()}
+
 # ── Cấu hình quét ────────────────────────────────────────────────────────
 # LƯU Ý: quét TUẦN TỰ (không dùng đa luồng). Đã kiểm tra: vnstock có một
 # dependency ẩn tên "vnai" (theo dõi lượt gọi hàm + hiển thị nội dung
@@ -65,6 +74,8 @@ filter_mode = st.sidebar.selectbox("Chế độ hiển thị:", ["Chỉ hiện m
 # độ ~20 request/phút của vnstock miễn phí khiến chạy song song vốn không
 # lợi nhiều về tổng thời gian, quét tuần tự là lựa chọn an toàn hơn nhiều.
 REQUEST_TIMEOUT = 15     # giây, timeout cho mỗi request (áp qua requests.Session ở trên)
+HARD_TIMEOUT_SEC = 20    # giây, timeout CỨNG cho mỗi mã (kể cả nếu bị treo thật sự,
+                         # không chỉ báo lỗi bình thường) — quá thời gian sẽ tự bỏ qua
 MIN_INTERVAL_SEC = 5.0   # tăng giãn cách (đã xác nhận qua chẩn đoán: VCI trả ConnectionError
                          # sau vài giây cho IP máy chủ Streamlit Cloud — khả năng là giới hạn
                          # tốc độ/chống bot của VCI, không phải lỗi code) — giãn rộng hơn để
@@ -172,9 +183,14 @@ if st.button("🔍 Chẩn đoán: thử tải riêng 1 mã (APH)"):
             st.code(traceback.format_exc())
 
 if st.button("🚀 Bắt đầu quét dữ liệu"):
-    st.info(f"⏳ Đang quét tuần tự {len(symbols)} mã (giãn cách {MIN_INTERVAL_SEC}s/mã theo giới hạn "
-            f"tốc độ của vnstock miễn phí, ước tính {len(symbols)*MIN_INTERVAL_SEC/60:.0f} phút, "
-            f"chưa kể thời gian thử lại nếu có mã bị lỗi kết nối). Kết quả sẽ hiện dần bên dưới.")
+    if skip_symbols:
+        st.caption(f"⏭️ Sẽ bỏ qua: {', '.join(sorted(skip_symbols))}")
+    scan_symbols = [s for s in symbols if s not in skip_symbols]
+    st.info(f"⏳ Đang quét tuần tự {len(scan_symbols)} mã (giãn cách {MIN_INTERVAL_SEC}s/mã theo giới hạn "
+            f"tốc độ của vnstock miễn phí, ước tính {len(scan_symbols)*MIN_INTERVAL_SEC/60:.0f} phút, "
+            f"chưa kể thời gian thử lại nếu có mã bị lỗi kết nối). Mỗi mã có timeout cứng "
+            f"{HARD_TIMEOUT_SEC}s — quá thời gian sẽ tự bỏ qua, không đợi vô thời hạn nữa. "
+            f"Kết quả sẽ hiện dần bên dưới.")
 
     vn_now = datetime.now(ZoneInfo("Asia/Ho_Chi_Minh"))
     end_date = (vn_now + timedelta(days=1)).strftime('%Y-%m-%d')
@@ -190,14 +206,26 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
     fetch_errors = []
     connection_error_symbols = []  # mã lỗi kết nối -> sẽ thử lại ở cuối
 
-    total = len(symbols)
+    total = len(scan_symbols)
+
+    # Một luồng nền DUY NHẤT dùng cho toàn bộ lượt quét (luôn tuần tự — chỉ 1
+    # tác vụ chạy tại một thời điểm, không tái diễn vấn đề "vnai" đã gặp khi
+    # chạy đa luồng thật sự). Nếu 1 lệnh gọi vượt quá HARD_TIMEOUT_SEC, ta bỏ
+    # cuộc chờ và coi như lỗi, không để cả app treo vô thời hạn nữa.
+    hard_timeout_executor = ThreadPoolExecutor(max_workers=1)
+
+    def fetch_with_hard_timeout(symbol, start_date, end_date):
+        fut = hard_timeout_executor.submit(fetch_one_stock, symbol, start_date, end_date)
+        return fut.result(timeout=HARD_TIMEOUT_SEC)
 
     def process_symbol(symbol, done_count, total_for_progress):
         """Tải + tính chỉ báo cho 1 mã. Trả về True nếu nên đưa vào hàng đợi thử lại."""
         t0 = time.monotonic()
         try:
-            df = fetch_one_stock(symbol, start_date, end_date)
+            df = fetch_with_hard_timeout(symbol, start_date, end_date)
             err = None
+        except FutureTimeoutError:
+            df, err = None, f"Timeout cứng sau {HARD_TIMEOUT_SEC}s — bỏ qua"
         except Exception as e:
             df, err = None, str(e)
 
@@ -259,7 +287,7 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
 
     # ── Lượt 1: quét toàn bộ danh sách ──────────────────────────────────────
     step = 0
-    for symbol in symbols:
+    for symbol in scan_symbols:
         step += 1
         should_retry = process_symbol(symbol, step, total)
         if should_retry:
