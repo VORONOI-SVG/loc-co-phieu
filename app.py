@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import plotly.graph_objects as go
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # 1. CẤU HÌNH TRANG - Bắt buộc là lệnh Streamlit đầu tiên
 st.set_page_config(page_title="Bộ Lọc TradingView Khủng", layout="centered")
@@ -15,21 +17,21 @@ st.write("Đồng bộ hiển thị: Sóng Vortex liên tục (Vortex Oscillator
 
 # Danh sách 150 mã cổ phiếu tiêu chuẩn Việt Nam
 symbols = [
-    'OCB', 'VCB', 'TCB', 'STB', 'MBB', 'ACB', 'BID', 'CTG', 'VPB', 'HDB', 
-    'VIB', 'LPB', 'SHB', 'TPB', 'MSB', 'BAB', 'EIB', 'NAB', 'SSB', 'BVB', 
-    'ABB', 'PGB', 'KLB', 'SGB', 'VAB', 'SSI', 'VND', 'VCI', 'HCM', 'FTS', 
-    'BSI', 'MBS', 'SHS', 'AGR', 'CTS', 'VIX', 'ORS', 'BVS', 'TVSI', 'VDS', 
-    'TCI', 'PSI', 'APG', 'SBS', 'WSS', 'HPG', 'HSG', 'NKG', 'VGS', 'SMC', 
-    'TLH', 'POM', 'TVN', 'KKC', 'VNS', 'VIC', 'VHM', 'VRE', 'NVL', 'PDR', 
-    'DIG', 'CEO', 'DXG', 'KDH', 'NLG', 'VPI', 'DXS', 'HQC', 'IJC', 'LDG', 
-    'SCR', 'TCH', 'ITA', 'HDG', 'CRE', 'KHG', 'NHA', 'AGG', 'QCG', 'NTL', 
-    'KBC', 'IDC', 'SZC', 'VGC', 'LHG', 'TIP', 'PHR', 'DPR', 'D2D', 'SIP', 
-    'FPT', 'MWG', 'FRT', 'DGW', 'PNJ', 'VNM', 'MSN', 'SAB', 'MCH', 'VTP', 
-    'PET', 'CMG', 'ELA', 'KDC', 'VOC', 'HAX', 'GAS', 'PVD', 'PVS', 'POW', 
-    'PC1', 'GEG', 'PVT', 'BSR', 'OIL', 'NT2', 'QTP', 'TV2', 'HND', 'VSH', 
-    'SAM', 'DGC', 'DPM', 'DCM', 'CSV', 'BFC', 'GVR', 'DRI', 'DDV', 'LAS', 
-    'APH', 'HHV', 'LCG', 'VJC', 'C4G', 'FCN', 'VCG', 'CII', 'HT1', 'BCC', 
-    'KSB', 'ANV', 'VHC', 'DBC', 'PAN', 'TNG', 'MSH', 'FMC', 'CMX', 'IDI', 
+    'OCB', 'VCB', 'TCB', 'STB', 'MBB', 'ACB', 'BID', 'CTG', 'VPB', 'HDB',
+    'VIB', 'LPB', 'SHB', 'TPB', 'MSB', 'BAB', 'EIB', 'NAB', 'SSB', 'BVB',
+    'ABB', 'PGB', 'KLB', 'SGB', 'VAB', 'SSI', 'VND', 'VCI', 'HCM', 'FTS',
+    'BSI', 'MBS', 'SHS', 'AGR', 'CTS', 'VIX', 'ORS', 'BVS', 'TVSI', 'VDS',
+    'TCI', 'PSI', 'APG', 'SBS', 'WSS', 'HPG', 'HSG', 'NKG', 'VGS', 'SMC',
+    'TLH', 'POM', 'TVN', 'KKC', 'VNS', 'VIC', 'VHM', 'VRE', 'NVL', 'PDR',
+    'DIG', 'CEO', 'DXG', 'KDH', 'NLG', 'VPI', 'DXS', 'HQC', 'IJC', 'LDG',
+    'SCR', 'TCH', 'ITA', 'HDG', 'CRE', 'KHG', 'NHA', 'AGG', 'QCG', 'NTL',
+    'KBC', 'IDC', 'SZC', 'VGC', 'LHG', 'TIP', 'PHR', 'DPR', 'D2D', 'SIP',
+    'FPT', 'MWG', 'FRT', 'DGW', 'PNJ', 'VNM', 'MSN', 'SAB', 'MCH', 'VTP',
+    'PET', 'CMG', 'ELA', 'KDC', 'VOC', 'HAX', 'GAS', 'PVD', 'PVS', 'POW',
+    'PC1', 'GEG', 'PVT', 'BSR', 'OIL', 'NT2', 'QTP', 'TV2', 'HND', 'VSH',
+    'SAM', 'DGC', 'DPM', 'DCM', 'CSV', 'BFC', 'GVR', 'DRI', 'DDV', 'LAS',
+    'APH', 'HHV', 'LCG', 'VJC', 'C4G', 'FCN', 'VCG', 'CII', 'HT1', 'BCC',
+    'KSB', 'ANV', 'VHC', 'DBC', 'PAN', 'TNG', 'MSH', 'FMC', 'CMX', 'IDI',
     'BAF', 'HNG'
 ]
 
@@ -37,13 +39,37 @@ symbols = sorted(list(set(symbols)))
 
 filter_mode = st.sidebar.selectbox("Chế độ hiển thị:", ["Chỉ hiện mã thỏa điều kiện MUA", "Hiện tất cả danh sách (150 mã)"])
 
+# ── Cấu hình quét đồng thời có kiểm soát tốc độ ─────────────────────────────
+MAX_WORKERS = 5          # số luồng tải song song
+REQUEST_TIMEOUT = 15     # giây, timeout cứng cho MỖI request — tránh treo cả app vì 1 mã lỗi mạng
+MIN_INTERVAL_SEC = 3.0   # khoảng cách tối thiểu giữa các lần "cấp phép gọi API" -> ~20 req/phút
+NEEDED_BARS = 300        # đủ cho SMA 234 + tail 60, không cần tải 3 năm dữ liệu
+
+
+class RateLimiter:
+    """Token-bucket đơn giản, dùng chung giữa các luồng để không vượt quá
+    giới hạn ~20 request/phút của vnstock bản miễn phí, kể cả khi chạy song song."""
+    def __init__(self, min_interval):
+        self.min_interval = min_interval
+        self.lock = threading.Lock()
+        self.last_call = 0.0
+
+    def wait(self):
+        with self.lock:
+            now = time.monotonic()
+            wait_time = self.last_call + self.min_interval - now
+            if wait_time > 0:
+                time.sleep(wait_time)
+            self.last_call = time.monotonic()
+
+
 def rma(series, period):
     return series.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+
 
 def calculate_indicators(df, length=14):
     src = pd.Series(df['close'].values.flatten(), index=df.index)
 
-    # ── Section 2 (Augmented RSI, © LuxAlgo) — length mặc định 14, smoothing RMA ──
     upper = src.rolling(window=length).max()
     lower = src.rolling(window=length).min()
     rsi_r = upper - lower
@@ -59,8 +85,6 @@ def calculate_indicators(df, length=14):
 
     df['arsi'] = (arsi_num / arsi_den.replace(0, np.nan)) * 50 + 50
 
-    # ── Section 10 (Vortex Histogram) — CHỈ dùng để xét tín hiệu MUA, không vẽ ──
-    # (đúng công thức: vh_vortex = avg(hist/3, longh/2, longesth/4), không chia cho giá)
     vh_short_sma   = src.rolling(window=6).mean()
     vh_long_sma    = src.rolling(window=27).mean()
     vh_longer_sma  = src.rolling(window=72).mean()
@@ -72,13 +96,8 @@ def calculate_indicators(df, length=14):
 
     df['vh_vortex'] = (vh_hist / 3 + vh_longh / 2 + vh_longesth / 4) / 3
 
-    # ── Section 12 (Vortex Oscillator Waves) — công thức thật của "sóng Vortex liên tục"
-    # dùng để VẼ đồ thị, đúng như trên TradingView: chia cho close, nhân hệ số scaler=150 ──
     scaler = 150.0
-    vo_s   = vh_short_sma
-    vo_l   = vh_long_sma
-    vo_lr  = vh_longer_sma
-    vo_lst = vh_longest_sma
+    vo_s, vo_l, vo_lr, vo_lst = vh_short_sma, vh_long_sma, vh_longer_sma, vh_longest_sma
 
     vo_hist     = ((vo_s - vo_l)   / src) * scaler
     vo_longhist = ((vo_s - vo_lr)  / src) * scaler
@@ -96,190 +115,214 @@ def calculate_indicators(df, length=14):
 
     return df
 
+
 @st.cache_data(ttl=1800, show_spinner=False)
-def fetch_all_stocks(symbols_tuple, start_date, end_date, _progress_bar=None):
-    """Tải dữ liệu từng mã một qua vnstock (nguồn VCI — chuyên biệt cho chứng khoán VN,
-    không bị chặn IP dùng chung như Yahoo Finance). Cache 30 phút để không gọi lại
-    liên tục. Có nghỉ giữa các lần gọi để tuân thủ giới hạn ~20 request/phút (miễn phí,
-    không cần đăng ký tài khoản)."""
-    results = {}
-    errors = []
-    total = len(symbols_tuple)
+def fetch_one_stock(symbol, start_date, end_date):
+    """Cache TỪNG mã riêng lẻ (thay vì cả batch) để bấm quét lại không phải
+    tải lại toàn bộ 150 mã nếu đã có mã nào đó còn hạn cache."""
+    df = Quote(symbol=symbol, source='VCI').history(start=start_date, end=end_date, interval='1D')
+    if df is None or df.empty:
+        return None
+    df = df.rename(columns={'time': 'date'})
+    df['date'] = pd.to_datetime(df['date'])
+    df = df.set_index('date').sort_index()
+    if 'close' not in df.columns:
+        return None
+    return df[['close']].copy()
 
-    for i, sym in enumerate(symbols_tuple):
-        try:
-            df = Quote(symbol=sym, source='VCI').history(start=start_date, end=end_date, interval='1D')
-            if df is not None and not df.empty:
-                df = df.rename(columns={'time': 'date'})
-                df['date'] = pd.to_datetime(df['date'])
-                df = df.set_index('date').sort_index()
-                if 'close' in df.columns:
-                    results[sym] = df[['close']].copy()
-        except Exception as e:
-            errors.append(f"{sym}: {e}")
 
-        if _progress_bar is not None:
-            _progress_bar.progress((i + 1) / total, text=f"Đang tải {sym} ({i + 1}/{total})...")
-
-        time.sleep(3.2)  # tuân thủ giới hạn ~20 request/phút của vnstock bản miễn phí
-
-    return results, errors
+def fetch_with_timeout(symbol, start_date, end_date, limiter, executor_1):
+    """Gọi fetch_one_stock nhưng bị chặn cứng bằng REQUEST_TIMEOUT giây.
+    Nếu quá thời gian, coi như lỗi và bỏ qua mã đó thay vì treo cả app."""
+    limiter.wait()
+    fut = executor_1.submit(fetch_one_stock, symbol, start_date, end_date)
+    try:
+        return symbol, fut.result(timeout=REQUEST_TIMEOUT), None
+    except Exception as e:
+        return symbol, None, str(e)
 
 
 if st.button("🚀 Bắt đầu quét dữ liệu"):
-    st.info("⏳ Việc quét 150 mã qua vnstock mất khoảng 8-10 phút do phải tuân thủ giới hạn tốc độ gọi API miễn phí. "
-            "Kết quả sẽ được cache 30 phút, các lần quét lại sau đó sẽ nhanh hơn nhiều.")
-    with st.spinner("Đang kết nối vnstock và xử lý dữ liệu..."):
-        matched_stocks = {}
-        all_results = []
+    st.info(f"⏳ Đang quét {len(symbols)} mã song song (tối đa {MAX_WORKERS} luồng cùng lúc, "
+            f"mỗi mã timeout {REQUEST_TIMEOUT}s để không bị treo cả app). Kết quả sẽ hiện dần bên dưới.")
 
-        # Tính ngày theo giờ Việt Nam (server chạy giờ UTC nên không dùng datetime.now() trực tiếp),
-        # và xin dư +1 ngày cho end_date để tránh bị thiếu dữ liệu mới nhất nếu tham số 'end' của
-        # vnstock không bao gồm chính ngày kết thúc.
-        vn_now = datetime.now(ZoneInfo("Asia/Ho_Chi_Minh"))
-        end_date = (vn_now + timedelta(days=1)).strftime('%Y-%m-%d')
-        start_date = (vn_now - timedelta(days=3 * 365)).strftime('%Y-%m-%d')
+    vn_now = datetime.now(ZoneInfo("Asia/Ho_Chi_Minh"))
+    end_date = (vn_now + timedelta(days=1)).strftime('%Y-%m-%d')
+    # Chỉ tải đủ số phiên cần thiết (SMA 234 + tail 60) thay vì 3 năm => request nhẹ và nhanh hơn
+    start_date = (vn_now - timedelta(days=int(NEEDED_BARS * 1.6))).strftime('%Y-%m-%d')
 
-        symbols_tuple = tuple(symbols)
-        progress_bar = st.progress(0, text="Chuẩn bị tải dữ liệu...")
+    progress_bar = st.progress(0, text="Chuẩn bị tải dữ liệu...")
+    status_area = st.empty()
+    table_placeholder = st.empty()
+    charts_header_placeholder = st.empty()
 
-        stock_data, fetch_errors = fetch_all_stocks(symbols_tuple, start_date, end_date, _progress_bar=progress_bar)
-        progress_bar.empty()
+    all_results = []
+    matched_stocks = {}
+    fetch_errors = []
 
-        if fetch_errors:
-            with st.expander(f"⚠️ Chi tiết lỗi khi tải dữ liệu ({len(fetch_errors)}/{len(symbols)} mã lỗi — bấm để xem)"):
-                for err in fetch_errors:
-                    st.write(err)
+    limiter = RateLimiter(MIN_INTERVAL_SEC)
 
-        try:
-            if stock_data:
-                for ticker in symbols:
-                    try:
-                        if ticker not in stock_data:
-                            continue
-                        df = stock_data[ticker].dropna(subset=['close']).copy()
-                        if len(df) < 240:
-                            continue
+    # executor_1 chạy request thật; executor chính điều phối MAX_WORKERS luồng song song
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool, \
+         ThreadPoolExecutor(max_workers=MAX_WORKERS) as inner_pool:
 
-                        df = calculate_indicators(df)
+        future_map = {
+            pool.submit(fetch_with_timeout, sym, start_date, end_date, limiter, inner_pool): sym
+            for sym in symbols
+        }
 
-                        latest = df.iloc[-1]
-                        arsi_val = float(latest['arsi']) if not pd.isna(latest['arsi']) else 0.0
-                        vortex_val = float(latest['vh_vortex']) if not pd.isna(latest['vh_vortex']) else 0.0
-                        close_val = float(latest['close']) if not pd.isna(latest['close']) else 0.0
-                        
-                        vh_green_rising = vortex_val >= 0
-                        arsi_over_80    = arsi_val > 80
-                        combined_signal = "🟢 MUA" if (vh_green_rising and arsi_over_80) else "⚪ Chờ"
-                        
-                        res_item = {
-                            "Mã CP": ticker,
-                            "Ngày dữ liệu": df.index[-1].strftime('%d/%m/%Y'),
-                            "Giá Đóng (VNĐ)": round(close_val, 0),
-                            "Augmented RSI": round(arsi_val, 2),
-                            "Vortex Histo Wave": round(vortex_val, 2),
-                            "Tín hiệu": combined_signal
-                        }
-                        all_results.append(res_item)
-                        
-                        if "150 mã" in filter_mode:
-                            matched_stocks[ticker] = df.tail(60)
-                        elif filter_mode == "Chỉ hiện mã thỏa điều kiện MUA" and combined_signal == "🟢 MUA":
-                            matched_stocks[ticker] = df.tail(60)
-                    except:
-                        continue
-        except Exception as e:
-            st.error(f"Lỗi xử lý dữ liệu sau khi tải: {e}")
+        done_count = 0
+        total = len(symbols)
 
-        # --- HIỂN THỊ KẾT QUẢ KÈM ĐỒ THỊ ---
-        if len(all_results) > 0:
-            res_df = pd.DataFrame(all_results)
-            
-            if "Chỉ hiện mã thỏa điều kiện MUA" in filter_mode:
-                display_df = res_df[res_df['Tín hiệu'] == "🟢 MUA"]
-                st.subheader("🟢 Các mã xuất hiện Chấm Tín Hiệu Mua")
-            else:
-                display_df = res_df
-                st.subheader(f"📋 Bảng tổng hợp thông số ({len(all_results)} mã)")
-                
-            if not display_df.empty:
-                st.dataframe(display_df, hide_index=True)
-                st.write("---")
-                st.subheader("📊 Chi tiết biểu đồ xung lực dòng tiền")
-                
-                for ticker in display_df["Mã CP"]:
-                    if ticker in matched_stocks:
-                        chart_data = matched_stocks[ticker].copy()
-                        fig = go.Figure()
-                        x = chart_data.index
+        for fut in as_completed(future_map):
+            sym = future_map[fut]
+            done_count += 1
+            try:
+                symbol, df, err = fut.result()
+            except Exception as e:
+                symbol, df, err = sym, None, str(e)
 
-                        # ── Section 12: Longest / Longer / Short Wave (area, đúng công thức TradingView) ──
-                        fig.add_trace(go.Scatter(
-                            x=x, y=(chart_data['vo_longest'] * 5).values.flatten(),
-                            mode='lines', line=dict(width=1, color='#008080'),
-                            fill='tozeroy', fillcolor='rgba(0, 128, 128, 0.20)',
-                            name='Longest Wave', yaxis='y1'))
-                        fig.add_trace(go.Scatter(
-                            x=x, y=(chart_data['vo_longhist'] * 5).values.flatten(),
-                            mode='lines', line=dict(width=1, color='#808000'),
-                            fill='tozeroy', fillcolor='rgba(128, 128, 0, 0.20)',
-                            name='Longer Wave', yaxis='y1'))
-                        fig.add_trace(go.Scatter(
-                            x=x, y=(chart_data['vo_hist'] * 5).values.flatten(),
-                            mode='lines', line=dict(width=1, color='#FF00FF'),
-                            fill='tozeroy', fillcolor='rgba(255, 0, 255, 0.20)',
-                            name='Short Wave', yaxis='y1'))
+            progress_bar.progress(done_count / total, text=f"Đã xử lý {done_count}/{total} mã (gần nhất: {symbol})...")
 
-                        # ── Vortex Main: sóng Vortex liên tục, xanh khi >=0, đỏ khi <0 (đúng Section 12) ──
-                        vortex_main = (chart_data['vo_vortexhist'] * 5).values.flatten()
-                        vortex_main_pos = np.where(vortex_main >= 0, vortex_main, np.nan)
-                        vortex_main_neg = np.where(vortex_main < 0, vortex_main, np.nan)
-                        fig.add_trace(go.Scatter(
-                            x=x, y=vortex_main_pos, mode='lines', line=dict(width=1, color='#2e7d32'),
-                            fill='tozeroy', fillcolor='rgba(0, 150, 0, 0.35)',
-                            name='Vortex Main (Tăng)', yaxis='y1'))
-                        fig.add_trace(go.Scatter(
-                            x=x, y=vortex_main_neg, mode='lines', line=dict(width=1, color='#c62828'),
-                            fill='tozeroy', fillcolor='rgba(200, 0, 0, 0.35)',
-                            name='Vortex Main (Giảm)', yaxis='y1'))
+            if err:
+                fetch_errors.append(f"{symbol}: {err}")
+                continue
+            if df is None or df.dropna(subset=['close']).shape[0] < 240:
+                continue
 
-                        # ── Micro EMA (đường trắng mảnh phủ lên Vortex Main) ──
-                        fig.add_trace(go.Scatter(
-                            x=x, y=(chart_data['micro_ema'] * 5).values.flatten(),
-                            mode='lines', line=dict(color='#eeeeee', width=1),
-                            name='Micro EMA', yaxis='y1'))
+            try:
+                df = df.dropna(subset=['close']).copy()
+                df = calculate_indicators(df)
 
-                        # ── Augmented RSI + ngưỡng quá mua 80 (hline tĩnh, đúng Pine, không phải HDLine giả) ──
-                        fig.add_trace(go.Scatter(
-                            x=x, y=chart_data['arsi'].values.flatten(),
-                            mode='lines', line=dict(color='#ff8f00', width=2),
-                            name='Augmented RSI', yaxis='y2'))
-                        fig.add_trace(go.Scatter(
-                            x=[x[0], x[-1]], y=[80, 80],
-                            mode='lines', line=dict(color='#089981', width=1, dash='dot'),
-                            name='ARSI Overbought (80)', yaxis='y2'))
+                latest = df.iloc[-1]
+                arsi_val = float(latest['arsi']) if not pd.isna(latest['arsi']) else 0.0
+                vortex_val = float(latest['vh_vortex']) if not pd.isna(latest['vh_vortex']) else 0.0
+                close_val = float(latest['close']) if not pd.isna(latest['close']) else 0.0
 
-                        # ── Chấm tín hiệu MUA (Section 11: vh_vortex >= 0 và arsi > 80) ──
-                        sig_x = [idx for idx, row in chart_data.iterrows()
-                                 if float(row['vh_vortex']) >= 0 and float(row['arsi']) > 80]
-                        if sig_x:
-                            y_floor = np.nanmin(vortex_main) if len(vortex_main) else 0
-                            fig.add_trace(go.Scatter(
-                                x=sig_x, y=[y_floor] * len(sig_x),
-                                mode='markers', marker=dict(color='#00FF00', size=8, symbol='circle'),
-                                name='Chấm Mua', yaxis='y1'))
+                vh_green_rising = vortex_val >= 0
+                arsi_over_80 = arsi_val > 80
+                combined_signal = "🟢 MUA" if (vh_green_rising and arsi_over_80) else "⚪ Chờ"
 
-                        fig.update_layout(
-                            title=dict(text=f"📊 <b>{ticker}</b>", font=dict(size=22, color='#000000')),
-                            template="plotly_white", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                            height=380, margin=dict(l=40, r=40, t=60, b=20), showlegend=True,
-                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, font=dict(size=9)),
-                            xaxis=dict(showgrid=False),
-                            yaxis=dict(title="Vortex Waves", side="left", showgrid=True, gridcolor='rgba(0,0,0,0.05)'),
-                            yaxis2=dict(title="Augmented RSI", side="right", overlaying="y", range=[0, 110], showgrid=False)
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("Hiện tại chưa tìm thấy mã nào thỏa mãn chấm tín hiệu xanh.")
+                res_item = {
+                    "Mã CP": symbol,
+                    "Ngày dữ liệu": df.index[-1].strftime('%d/%m/%Y'),
+                    "Giá Đóng (VNĐ)": round(close_val, 0),
+                    "Augmented RSI": round(arsi_val, 2),
+                    "Vortex Histo Wave": round(vortex_val, 2),
+                    "Tín hiệu": combined_signal
+                }
+                all_results.append(res_item)
+
+                if "150 mã" in filter_mode:
+                    matched_stocks[symbol] = df.tail(60)
+                elif filter_mode == "Chỉ hiện mã thỏa điều kiện MUA" and combined_signal == "🟢 MUA":
+                    matched_stocks[symbol] = df.tail(60)
+
+                # Cập nhật bảng kết quả NGAY khi có thêm 1 mã xong -> người dùng thấy tiến độ thật,
+                # không phải chờ hết cả 150 mã mới thấy gì (đây là phần chính gây cảm giác "đơ" ở bản cũ)
+                res_df_live = pd.DataFrame(all_results)
+                if "Chỉ hiện mã thỏa điều kiện MUA" in filter_mode:
+                    display_live = res_df_live[res_df_live['Tín hiệu'] == "🟢 MUA"]
+                else:
+                    display_live = res_df_live
+                if not display_live.empty:
+                    table_placeholder.dataframe(display_live, hide_index=True)
+
+            except Exception:
+                continue
+
+    progress_bar.empty()
+    status_area.empty()
+
+    if fetch_errors:
+        with st.expander(f"⚠️ Chi tiết lỗi khi tải dữ liệu ({len(fetch_errors)}/{len(symbols)} mã lỗi — bấm để xem)"):
+            for err in fetch_errors:
+                st.write(err)
+
+    # --- HIỂN THỊ KẾT QUẢ CUỐI CÙNG KÈM ĐỒ THỊ ---
+    if len(all_results) > 0:
+        res_df = pd.DataFrame(all_results)
+
+        if "Chỉ hiện mã thỏa điều kiện MUA" in filter_mode:
+            display_df = res_df[res_df['Tín hiệu'] == "🟢 MUA"]
+            charts_header_placeholder.subheader("🟢 Các mã xuất hiện Chấm Tín Hiệu Mua")
         else:
-            st.error("Không lấy được dữ liệu thị trường từ vnstock, vui lòng thử nhấn quét lại sau ít phút.")
+            display_df = res_df
+            charts_header_placeholder.subheader(f"📋 Bảng tổng hợp thông số ({len(all_results)} mã)")
+
+        if not display_df.empty:
+            table_placeholder.dataframe(display_df, hide_index=True)
+            st.write("---")
+            st.subheader("📊 Chi tiết biểu đồ xung lực dòng tiền")
+
+            for ticker in display_df["Mã CP"]:
+                if ticker in matched_stocks:
+                    chart_data = matched_stocks[ticker].copy()
+                    fig = go.Figure()
+                    x = chart_data.index
+
+                    fig.add_trace(go.Scatter(
+                        x=x, y=(chart_data['vo_longest'] * 5).values.flatten(),
+                        mode='lines', line=dict(width=1, color='#008080'),
+                        fill='tozeroy', fillcolor='rgba(0, 128, 128, 0.20)',
+                        name='Longest Wave', yaxis='y1'))
+                    fig.add_trace(go.Scatter(
+                        x=x, y=(chart_data['vo_longhist'] * 5).values.flatten(),
+                        mode='lines', line=dict(width=1, color='#808000'),
+                        fill='tozeroy', fillcolor='rgba(128, 128, 0, 0.20)',
+                        name='Longer Wave', yaxis='y1'))
+                    fig.add_trace(go.Scatter(
+                        x=x, y=(chart_data['vo_hist'] * 5).values.flatten(),
+                        mode='lines', line=dict(width=1, color='#FF00FF'),
+                        fill='tozeroy', fillcolor='rgba(255, 0, 255, 0.20)',
+                        name='Short Wave', yaxis='y1'))
+
+                    vortex_main = (chart_data['vo_vortexhist'] * 5).values.flatten()
+                    vortex_main_pos = np.where(vortex_main >= 0, vortex_main, np.nan)
+                    vortex_main_neg = np.where(vortex_main < 0, vortex_main, np.nan)
+                    fig.add_trace(go.Scatter(
+                        x=x, y=vortex_main_pos, mode='lines', line=dict(width=1, color='#2e7d32'),
+                        fill='tozeroy', fillcolor='rgba(0, 150, 0, 0.35)',
+                        name='Vortex Main (Tăng)', yaxis='y1'))
+                    fig.add_trace(go.Scatter(
+                        x=x, y=vortex_main_neg, mode='lines', line=dict(width=1, color='#c62828'),
+                        fill='tozeroy', fillcolor='rgba(200, 0, 0, 0.35)',
+                        name='Vortex Main (Giảm)', yaxis='y1'))
+
+                    fig.add_trace(go.Scatter(
+                        x=x, y=(chart_data['micro_ema'] * 5).values.flatten(),
+                        mode='lines', line=dict(color='#eeeeee', width=1),
+                        name='Micro EMA', yaxis='y1'))
+
+                    fig.add_trace(go.Scatter(
+                        x=x, y=chart_data['arsi'].values.flatten(),
+                        mode='lines', line=dict(color='#ff8f00', width=2),
+                        name='Augmented RSI', yaxis='y2'))
+                    fig.add_trace(go.Scatter(
+                        x=[x[0], x[-1]], y=[80, 80],
+                        mode='lines', line=dict(color='#089981', width=1, dash='dot'),
+                        name='ARSI Overbought (80)', yaxis='y2'))
+
+                    sig_x = [idx for idx, row in chart_data.iterrows()
+                             if float(row['vh_vortex']) >= 0 and float(row['arsi']) > 80]
+                    if sig_x:
+                        y_floor = np.nanmin(vortex_main) if len(vortex_main) else 0
+                        fig.add_trace(go.Scatter(
+                            x=sig_x, y=[y_floor] * len(sig_x),
+                            mode='markers', marker=dict(color='#00FF00', size=8, symbol='circle'),
+                            name='Chấm Mua', yaxis='y1'))
+
+                    fig.update_layout(
+                        title=dict(text=f"📊 <b>{ticker}</b>", font=dict(size=22, color='#000000')),
+                        template="plotly_white", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                        height=380, margin=dict(l=40, r=40, t=60, b=20), showlegend=True,
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, font=dict(size=9)),
+                        xaxis=dict(showgrid=False),
+                        yaxis=dict(title="Vortex Waves", side="left", showgrid=True, gridcolor='rgba(0,0,0,0.05)'),
+                        yaxis2=dict(title="Augmented RSI", side="right", overlaying="y", range=[0, 110], showgrid=False)
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Hiện tại chưa tìm thấy mã nào thỏa mãn chấm tín hiệu xanh.")
+    else:
+        st.error("Không lấy được dữ liệu thị trường từ vnstock, vui lòng thử nhấn quét lại sau ít phút.")
