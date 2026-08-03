@@ -7,8 +7,6 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import plotly.graph_objects as go
 import time
-import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ── QUAN TRỌNG: chỉ áp timeout cho các request HTTP (thư viện requests mà
 # vnstock dùng bên dưới), KHÔNG dùng socket.setdefaulttimeout() toàn cục —
@@ -55,31 +53,20 @@ symbols = sorted(list(set(symbols)))
 
 filter_mode = st.sidebar.selectbox("Chế độ hiển thị:", ["Chỉ hiện mã thỏa điều kiện MUA", "Hiện tất cả danh sách (150 mã)"])
 
-# ── Cấu hình quét đồng thời có kiểm soát tốc độ ─────────────────────────────
-MAX_WORKERS = 5          # số luồng tải song song
-REQUEST_TIMEOUT = 15     # giây, timeout cứng cho MỖI request — tránh treo cả app vì 1 mã lỗi mạng
-MIN_INTERVAL_SEC = 3.0   # khoảng cách tối thiểu giữa các lần "cấp phép gọi API" -> ~20 req/phút
+# ── Cấu hình quét ────────────────────────────────────────────────────────
+# LƯU Ý: quét TUẦN TỰ (không dùng đa luồng). Đã kiểm tra: vnstock có một
+# dependency ẩn tên "vnai" (theo dõi lượt gọi hàm + hiển thị nội dung
+# quảng cáo khi khởi tạo lần đầu). Cơ chế khởi tạo lần đầu của nó dùng một
+# khóa (lock) dùng chung toàn cục, và bên trong có gọi mạng tới server
+# quảng cáo/đăng ký thiết bị của vnstock (khác với server dữ liệu VCI).
+# Nếu nhiều luồng cùng gọi Quote().history() lần đầu tiên GẦN NHƯ ĐỒNG THỜI,
+# tất cả sẽ cùng xếp hàng chờ chung 1 khóa đó -> có thể gây treo toàn bộ app
+# ngay từ giây đầu tiên nếu lệnh gọi mạng đó bị chậm/treo. Vì giới hạn tốc
+# độ ~20 request/phút của vnstock miễn phí khiến chạy song song vốn không
+# lợi nhiều về tổng thời gian, quét tuần tự là lựa chọn an toàn hơn nhiều.
+REQUEST_TIMEOUT = 15     # giây, timeout cho mỗi request (áp qua requests.Session ở trên)
+MIN_INTERVAL_SEC = 3.0   # khoảng cách tối thiểu giữa các lần gọi API -> ~20 req/phút
 NEEDED_BARS = 300        # đủ cho SMA 234 + tail 60, không cần tải 3 năm dữ liệu
-
-
-class RateLimiter:
-    """Token-bucket đơn giản, dùng chung giữa các luồng để không vượt quá
-    giới hạn ~20 request/phút của vnstock bản miễn phí, kể cả khi chạy song song.
-    QUAN TRỌNG: chỉ giữ lock để ĐỌC/GHI last_call, KHÔNG sleep trong lúc giữ lock —
-    nếu không, mọi luồng khác sẽ bị chặn cứng theo, triệt tiêu hết lợi ích chạy song song
-    và làm tăng nguy cơ nghẽn dây chuyền khi có 1 luồng gặp sự cố."""
-    def __init__(self, min_interval):
-        self.min_interval = min_interval
-        self.lock = threading.Lock()
-        self.last_call = 0.0
-
-    def wait(self):
-        with self.lock:
-            now = time.monotonic()
-            wait_time = self.last_call + self.min_interval - now
-            self.last_call = max(now, self.last_call) + (self.min_interval if wait_time > 0 else 0)
-        if wait_time > 0:
-            time.sleep(wait_time)
 
 
 def rma(series, period):
@@ -150,19 +137,10 @@ def fetch_one_stock(symbol, start_date, end_date):
     return df[['close']].copy()
 
 
-def fetch_with_timeout(symbol, start_date, end_date, limiter):
-    """Gọi fetch_one_stock. Việc treo mạng vô thời hạn đã được chặn ở tầng
-    socket.setdefaulttimeout() phía trên, nên ở đây chỉ cần bắt Exception thường."""
-    limiter.wait()
-    try:
-        return symbol, fetch_one_stock(symbol, start_date, end_date), None
-    except Exception as e:
-        return symbol, None, str(e)
-
-
 if st.button("🚀 Bắt đầu quét dữ liệu"):
-    st.info(f"⏳ Đang quét {len(symbols)} mã song song (tối đa {MAX_WORKERS} luồng cùng lúc, "
-            f"mỗi mã timeout {REQUEST_TIMEOUT}s để không bị treo cả app). Kết quả sẽ hiện dần bên dưới.")
+    st.info(f"⏳ Đang quét tuần tự {len(symbols)} mã (giãn cách {MIN_INTERVAL_SEC}s/mã theo giới hạn "
+            f"tốc độ của vnstock miễn phí, ước tính {len(symbols)*MIN_INTERVAL_SEC/60:.0f} phút). "
+            f"Kết quả sẽ hiện dần bên dưới.")
 
     vn_now = datetime.now(ZoneInfo("Asia/Ho_Chi_Minh"))
     end_date = (vn_now + timedelta(days=1)).strftime('%Y-%m-%d')
@@ -170,7 +148,6 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
     start_date = (vn_now - timedelta(days=int(NEEDED_BARS * 1.6))).strftime('%Y-%m-%d')
 
     progress_bar = st.progress(0, text="Chuẩn bị tải dữ liệu...")
-    status_area = st.empty()
     table_placeholder = st.empty()
     charts_header_placeholder = st.empty()
 
@@ -178,79 +155,75 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
     matched_stocks = {}
     fetch_errors = []
 
-    limiter = RateLimiter(MIN_INTERVAL_SEC)
+    total = len(symbols)
 
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+    for done_count, symbol in enumerate(symbols, start=1):
+        t0 = time.monotonic()
+        try:
+            df = fetch_one_stock(symbol, start_date, end_date)
+            err = None
+        except Exception as e:
+            df, err = None, str(e)
 
-        future_map = {
-            pool.submit(fetch_with_timeout, sym, start_date, end_date, limiter): sym
-            for sym in symbols
-        }
+        # Giữ khoảng cách tối thiểu MIN_INTERVAL_SEC giữa các lần gọi API,
+        # trừ đi thời gian đã tốn cho chính lệnh gọi (để không cộng dồn oan)
+        elapsed = time.monotonic() - t0
+        remaining_wait = MIN_INTERVAL_SEC - elapsed
+        if remaining_wait > 0:
+            time.sleep(remaining_wait)
 
-        done_count = 0
-        total = len(symbols)
+        progress_bar.progress(done_count / total, text=f"Đã xử lý {done_count}/{total} mã (gần nhất: {symbol})...")
 
-        for fut in as_completed(future_map):
-            sym = future_map[fut]
-            done_count += 1
-            try:
-                symbol, df, err = fut.result()
-            except Exception as e:
-                symbol, df, err = sym, None, str(e)
+        if err:
+            fetch_errors.append(f"{symbol}: {err}")
+            continue
+        if df is None or df.dropna(subset=['close']).shape[0] < 240:
+            continue
 
-            progress_bar.progress(done_count / total, text=f"Đã xử lý {done_count}/{total} mã (gần nhất: {symbol})...")
+        try:
+            df = df.dropna(subset=['close']).copy()
+            df = calculate_indicators(df)
 
-            if err:
-                fetch_errors.append(f"{symbol}: {err}")
-                continue
-            if df is None or df.dropna(subset=['close']).shape[0] < 240:
-                continue
+            latest = df.iloc[-1]
+            arsi_val = float(latest['arsi']) if not pd.isna(latest['arsi']) else 0.0
+            vortex_val = float(latest['vh_vortex']) if not pd.isna(latest['vh_vortex']) else 0.0
+            close_val = float(latest['close']) if not pd.isna(latest['close']) else 0.0
 
-            try:
-                df = df.dropna(subset=['close']).copy()
-                df = calculate_indicators(df)
+            vh_green_rising = vortex_val >= 0
+            arsi_over_80 = arsi_val > 80
+            combined_signal = "🟢 MUA" if (vh_green_rising and arsi_over_80) else "⚪ Chờ"
 
-                latest = df.iloc[-1]
-                arsi_val = float(latest['arsi']) if not pd.isna(latest['arsi']) else 0.0
-                vortex_val = float(latest['vh_vortex']) if not pd.isna(latest['vh_vortex']) else 0.0
-                close_val = float(latest['close']) if not pd.isna(latest['close']) else 0.0
+            res_item = {
+                "Mã CP": symbol,
+                "Ngày dữ liệu": df.index[-1].strftime('%d/%m/%Y'),
+                "Giá Đóng (VNĐ)": round(close_val, 0),
+                "Augmented RSI": round(arsi_val, 2),
+                "Vortex Histo Wave": round(vortex_val, 2),
+                "Tín hiệu": combined_signal
+            }
+            all_results.append(res_item)
 
-                vh_green_rising = vortex_val >= 0
-                arsi_over_80 = arsi_val > 80
-                combined_signal = "🟢 MUA" if (vh_green_rising and arsi_over_80) else "⚪ Chờ"
+            if "150 mã" in filter_mode:
+                matched_stocks[symbol] = df.tail(60)
+            elif filter_mode == "Chỉ hiện mã thỏa điều kiện MUA" and combined_signal == "🟢 MUA":
+                matched_stocks[symbol] = df.tail(60)
 
-                res_item = {
-                    "Mã CP": symbol,
-                    "Ngày dữ liệu": df.index[-1].strftime('%d/%m/%Y'),
-                    "Giá Đóng (VNĐ)": round(close_val, 0),
-                    "Augmented RSI": round(arsi_val, 2),
-                    "Vortex Histo Wave": round(vortex_val, 2),
-                    "Tín hiệu": combined_signal
-                }
-                all_results.append(res_item)
+            # Cập nhật bảng kết quả định kỳ (mỗi 5 mã) thay vì MỖI mã một lần —
+            # gửi cập nhật UI quá dồn dập qua WebSocket có thể làm nghẽn kết nối
+            # trên các phiên mạng yếu/không ổn định.
+            if done_count % 5 == 0 or done_count == total:
+                res_df_live = pd.DataFrame(all_results)
+                if "Chỉ hiện mã thỏa điều kiện MUA" in filter_mode:
+                    display_live = res_df_live[res_df_live['Tín hiệu'] == "🟢 MUA"]
+                else:
+                    display_live = res_df_live
+                if not display_live.empty:
+                    table_placeholder.dataframe(display_live, hide_index=True)
 
-                if "150 mã" in filter_mode:
-                    matched_stocks[symbol] = df.tail(60)
-                elif filter_mode == "Chỉ hiện mã thỏa điều kiện MUA" and combined_signal == "🟢 MUA":
-                    matched_stocks[symbol] = df.tail(60)
-
-                # Cập nhật bảng kết quả định kỳ (mỗi 5 mã) thay vì MỖI mã một lần —
-                # gửi cập nhật UI quá dồn dập qua WebSocket có thể làm nghẽn kết nối
-                # trên các phiên mạng yếu/không ổn định.
-                if done_count % 5 == 0 or done_count == total:
-                    res_df_live = pd.DataFrame(all_results)
-                    if "Chỉ hiện mã thỏa điều kiện MUA" in filter_mode:
-                        display_live = res_df_live[res_df_live['Tín hiệu'] == "🟢 MUA"]
-                    else:
-                        display_live = res_df_live
-                    if not display_live.empty:
-                        table_placeholder.dataframe(display_live, hide_index=True)
-
-            except Exception:
-                continue
+        except Exception:
+            continue
 
     progress_bar.empty()
-    status_area.empty()
 
     if fetch_errors:
         with st.expander(f"⚠️ Chi tiết lỗi khi tải dữ liệu ({len(fetch_errors)}/{len(symbols)} mã lỗi — bấm để xem)"):
