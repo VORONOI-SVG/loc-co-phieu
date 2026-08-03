@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import socket
+import requests
 from vnstock import Quote
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -10,13 +10,20 @@ import time
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# ── QUAN TRỌNG: đặt timeout ở tầng socket của hệ điều hành ──────────────────
-# vnstock (dùng requests bên dưới) không tự đặt timeout cho request mạng,
-# nên nếu server không phản hồi, kết nối có thể treo VÔ THỜI HẠN và không
-# cách nào huỷ được từ phía Python (kể cả dùng future.result(timeout=...)).
-# socket.setdefaulttimeout ép TẤT CẢ socket mới tạo trong tiến trình này
-# (bao gồm cả bên trong vnstock/requests/urllib3) phải timeout sau N giây.
-socket.setdefaulttimeout(15)
+# ── QUAN TRỌNG: chỉ áp timeout cho các request HTTP (thư viện requests mà
+# vnstock dùng bên dưới), KHÔNG dùng socket.setdefaulttimeout() toàn cục —
+# vì cách đó ảnh hưởng luôn tới các socket nội bộ mà Streamlit dùng để giữ
+# kết nối WebSocket đẩy cập nhật UI, có thể khiến cả app trông như bị "đơ"
+# ngay cả khi backend Python vẫn đang chạy bình thường.
+_original_requests_request = requests.Session.request
+
+
+def _requests_request_with_default_timeout(self, method, url, **kwargs):
+    kwargs.setdefault('timeout', 15)
+    return _original_requests_request(self, method, url, **kwargs)
+
+
+requests.Session.request = _requests_request_with_default_timeout
 
 # 1. CẤU HÌNH TRANG - Bắt buộc là lệnh Streamlit đầu tiên
 st.set_page_config(page_title="Bộ Lọc TradingView Khủng", layout="centered")
