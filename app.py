@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import socket
 from vnstock import Quote
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -8,6 +9,14 @@ import plotly.graph_objects as go
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# ── QUAN TRỌNG: đặt timeout ở tầng socket của hệ điều hành ──────────────────
+# vnstock (dùng requests bên dưới) không tự đặt timeout cho request mạng,
+# nên nếu server không phản hồi, kết nối có thể treo VÔ THỜI HẠN và không
+# cách nào huỷ được từ phía Python (kể cả dùng future.result(timeout=...)).
+# socket.setdefaulttimeout ép TẤT CẢ socket mới tạo trong tiến trình này
+# (bao gồm cả bên trong vnstock/requests/urllib3) phải timeout sau N giây.
+socket.setdefaulttimeout(15)
 
 # 1. CẤU HÌNH TRANG - Bắt buộc là lệnh Streamlit đầu tiên
 st.set_page_config(page_title="Bộ Lọc TradingView Khủng", layout="centered")
@@ -48,7 +57,10 @@ NEEDED_BARS = 300        # đủ cho SMA 234 + tail 60, không cần tải 3 nă
 
 class RateLimiter:
     """Token-bucket đơn giản, dùng chung giữa các luồng để không vượt quá
-    giới hạn ~20 request/phút của vnstock bản miễn phí, kể cả khi chạy song song."""
+    giới hạn ~20 request/phút của vnstock bản miễn phí, kể cả khi chạy song song.
+    QUAN TRỌNG: chỉ giữ lock để ĐỌC/GHI last_call, KHÔNG sleep trong lúc giữ lock —
+    nếu không, mọi luồng khác sẽ bị chặn cứng theo, triệt tiêu hết lợi ích chạy song song
+    và làm tăng nguy cơ nghẽn dây chuyền khi có 1 luồng gặp sự cố."""
     def __init__(self, min_interval):
         self.min_interval = min_interval
         self.lock = threading.Lock()
@@ -58,9 +70,9 @@ class RateLimiter:
         with self.lock:
             now = time.monotonic()
             wait_time = self.last_call + self.min_interval - now
-            if wait_time > 0:
-                time.sleep(wait_time)
-            self.last_call = time.monotonic()
+            self.last_call = max(now, self.last_call) + (self.min_interval if wait_time > 0 else 0)
+        if wait_time > 0:
+            time.sleep(wait_time)
 
 
 def rma(series, period):
@@ -131,13 +143,12 @@ def fetch_one_stock(symbol, start_date, end_date):
     return df[['close']].copy()
 
 
-def fetch_with_timeout(symbol, start_date, end_date, limiter, executor_1):
-    """Gọi fetch_one_stock nhưng bị chặn cứng bằng REQUEST_TIMEOUT giây.
-    Nếu quá thời gian, coi như lỗi và bỏ qua mã đó thay vì treo cả app."""
+def fetch_with_timeout(symbol, start_date, end_date, limiter):
+    """Gọi fetch_one_stock. Việc treo mạng vô thời hạn đã được chặn ở tầng
+    socket.setdefaulttimeout() phía trên, nên ở đây chỉ cần bắt Exception thường."""
     limiter.wait()
-    fut = executor_1.submit(fetch_one_stock, symbol, start_date, end_date)
     try:
-        return symbol, fut.result(timeout=REQUEST_TIMEOUT), None
+        return symbol, fetch_one_stock(symbol, start_date, end_date), None
     except Exception as e:
         return symbol, None, str(e)
 
@@ -162,12 +173,10 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
 
     limiter = RateLimiter(MIN_INTERVAL_SEC)
 
-    # executor_1 chạy request thật; executor chính điều phối MAX_WORKERS luồng song song
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool, \
-         ThreadPoolExecutor(max_workers=MAX_WORKERS) as inner_pool:
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
 
         future_map = {
-            pool.submit(fetch_with_timeout, sym, start_date, end_date, limiter, inner_pool): sym
+            pool.submit(fetch_with_timeout, sym, start_date, end_date, limiter): sym
             for sym in symbols
         }
 
@@ -218,15 +227,17 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                 elif filter_mode == "Chỉ hiện mã thỏa điều kiện MUA" and combined_signal == "🟢 MUA":
                     matched_stocks[symbol] = df.tail(60)
 
-                # Cập nhật bảng kết quả NGAY khi có thêm 1 mã xong -> người dùng thấy tiến độ thật,
-                # không phải chờ hết cả 150 mã mới thấy gì (đây là phần chính gây cảm giác "đơ" ở bản cũ)
-                res_df_live = pd.DataFrame(all_results)
-                if "Chỉ hiện mã thỏa điều kiện MUA" in filter_mode:
-                    display_live = res_df_live[res_df_live['Tín hiệu'] == "🟢 MUA"]
-                else:
-                    display_live = res_df_live
-                if not display_live.empty:
-                    table_placeholder.dataframe(display_live, hide_index=True)
+                # Cập nhật bảng kết quả định kỳ (mỗi 5 mã) thay vì MỖI mã một lần —
+                # gửi cập nhật UI quá dồn dập qua WebSocket có thể làm nghẽn kết nối
+                # trên các phiên mạng yếu/không ổn định.
+                if done_count % 5 == 0 or done_count == total:
+                    res_df_live = pd.DataFrame(all_results)
+                    if "Chỉ hiện mã thỏa điều kiện MUA" in filter_mode:
+                        display_live = res_df_live[res_df_live['Tín hiệu'] == "🟢 MUA"]
+                    else:
+                        display_live = res_df_live
+                    if not display_live.empty:
+                        table_placeholder.dataframe(display_live, hide_index=True)
 
             except Exception:
                 continue
