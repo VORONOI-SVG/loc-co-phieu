@@ -65,7 +65,10 @@ filter_mode = st.sidebar.selectbox("Chế độ hiển thị:", ["Chỉ hiện m
 # độ ~20 request/phút của vnstock miễn phí khiến chạy song song vốn không
 # lợi nhiều về tổng thời gian, quét tuần tự là lựa chọn an toàn hơn nhiều.
 REQUEST_TIMEOUT = 15     # giây, timeout cho mỗi request (áp qua requests.Session ở trên)
-MIN_INTERVAL_SEC = 3.0   # khoảng cách tối thiểu giữa các lần gọi API -> ~20 req/phút
+MIN_INTERVAL_SEC = 5.0   # tăng giãn cách (đã xác nhận qua chẩn đoán: VCI trả ConnectionError
+                         # sau vài giây cho IP máy chủ Streamlit Cloud — khả năng là giới hạn
+                         # tốc độ/chống bot của VCI, không phải lỗi code) — giãn rộng hơn để
+                         # giảm khả năng bị coi là truy cập bất thường
 NEEDED_BARS = 300        # đủ cho SMA 234 + tail 60, không cần tải 3 năm dữ liệu
 
 
@@ -125,8 +128,12 @@ def calculate_indicators(df, length=14):
 @st.cache_data(ttl=1800, show_spinner=False)
 def fetch_one_stock(symbol, start_date, end_date):
     """Cache TỪNG mã riêng lẻ (thay vì cả batch) để bấm quét lại không phải
-    tải lại toàn bộ 150 mã nếu đã có mã nào đó còn hạn cache."""
-    df = Quote(symbol=symbol, source='VCI').history(start=start_date, end=end_date, interval='1D')
+    tải lại toàn bộ 150 mã nếu đã có mã nào đó còn hạn cache.
+    random_agent=True: đổi User-Agent ngẫu nhiên mỗi lần gọi, giúp đỡ giống
+    hành vi bot hơn một chút trước hệ thống chống scraping của VCI."""
+    df = Quote(symbol=symbol, source='VCI', random_agent=True).history(
+        start=start_date, end=end_date, interval='1D'
+    )
     if df is None or df.empty:
         return None
     df = df.rename(columns={'time': 'date'})
@@ -135,6 +142,13 @@ def fetch_one_stock(symbol, start_date, end_date):
     if 'close' not in df.columns:
         return None
     return df[['close']].copy()
+
+
+def is_connection_error(err_msg: str) -> bool:
+    """Nhận diện lỗi kết nối/timeout (khả năng do VCI giới hạn tốc độ tạm thời)
+    để đưa vào hàng đợi thử lại, thay vì các lỗi khác (vd: mã không tồn tại)."""
+    keywords = ["ConnectionError", "RetryError", "Timeout", "timed out", "Connection"]
+    return any(k.lower() in err_msg.lower() for k in keywords)
 
 
 if st.button("🔍 Chẩn đoán: thử tải riêng 1 mã (APH)"):
@@ -159,8 +173,8 @@ if st.button("🔍 Chẩn đoán: thử tải riêng 1 mã (APH)"):
 
 if st.button("🚀 Bắt đầu quét dữ liệu"):
     st.info(f"⏳ Đang quét tuần tự {len(symbols)} mã (giãn cách {MIN_INTERVAL_SEC}s/mã theo giới hạn "
-            f"tốc độ của vnstock miễn phí, ước tính {len(symbols)*MIN_INTERVAL_SEC/60:.0f} phút). "
-            f"Kết quả sẽ hiện dần bên dưới.")
+            f"tốc độ của vnstock miễn phí, ước tính {len(symbols)*MIN_INTERVAL_SEC/60:.0f} phút, "
+            f"chưa kể thời gian thử lại nếu có mã bị lỗi kết nối). Kết quả sẽ hiện dần bên dưới.")
 
     vn_now = datetime.now(ZoneInfo("Asia/Ho_Chi_Minh"))
     end_date = (vn_now + timedelta(days=1)).strftime('%Y-%m-%d')
@@ -174,10 +188,12 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
     all_results = []
     matched_stocks = {}
     fetch_errors = []
+    connection_error_symbols = []  # mã lỗi kết nối -> sẽ thử lại ở cuối
 
     total = len(symbols)
 
-    for done_count, symbol in enumerate(symbols, start=1):
+    def process_symbol(symbol, done_count, total_for_progress):
+        """Tải + tính chỉ báo cho 1 mã. Trả về True nếu nên đưa vào hàng đợi thử lại."""
         t0 = time.monotonic()
         try:
             df = fetch_one_stock(symbol, start_date, end_date)
@@ -185,26 +201,27 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
         except Exception as e:
             df, err = None, str(e)
 
-        # Giữ khoảng cách tối thiểu MIN_INTERVAL_SEC giữa các lần gọi API,
-        # trừ đi thời gian đã tốn cho chính lệnh gọi (để không cộng dồn oan)
         elapsed = time.monotonic() - t0
         remaining_wait = MIN_INTERVAL_SEC - elapsed
         if remaining_wait > 0:
             time.sleep(remaining_wait)
 
-        progress_bar.progress(done_count / total, text=f"Đã xử lý {done_count}/{total} mã (gần nhất: {symbol})...")
+        progress_bar.progress(
+            min(done_count / total_for_progress, 1.0),
+            text=f"Đã xử lý {done_count}/{total_for_progress} lượt gọi (gần nhất: {symbol})..."
+        )
 
         if err:
             fetch_errors.append(f"{symbol}: {err}")
-            continue
+            return is_connection_error(err)
         if df is None or df.dropna(subset=['close']).shape[0] < 240:
-            continue
+            return False
 
         try:
-            df = df.dropna(subset=['close']).copy()
-            df = calculate_indicators(df)
+            df2 = df.dropna(subset=['close']).copy()
+            df2 = calculate_indicators(df2)
 
-            latest = df.iloc[-1]
+            latest = df2.iloc[-1]
             arsi_val = float(latest['arsi']) if not pd.isna(latest['arsi']) else 0.0
             vortex_val = float(latest['vh_vortex']) if not pd.isna(latest['vh_vortex']) else 0.0
             close_val = float(latest['close']) if not pd.isna(latest['close']) else 0.0
@@ -215,7 +232,7 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
 
             res_item = {
                 "Mã CP": symbol,
-                "Ngày dữ liệu": df.index[-1].strftime('%d/%m/%Y'),
+                "Ngày dữ liệu": df2.index[-1].strftime('%d/%m/%Y'),
                 "Giá Đóng (VNĐ)": round(close_val, 0),
                 "Augmented RSI": round(arsi_val, 2),
                 "Vortex Histo Wave": round(vortex_val, 2),
@@ -224,14 +241,11 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
             all_results.append(res_item)
 
             if "150 mã" in filter_mode:
-                matched_stocks[symbol] = df.tail(60)
+                matched_stocks[symbol] = df2.tail(60)
             elif filter_mode == "Chỉ hiện mã thỏa điều kiện MUA" and combined_signal == "🟢 MUA":
-                matched_stocks[symbol] = df.tail(60)
+                matched_stocks[symbol] = df2.tail(60)
 
-            # Cập nhật bảng kết quả định kỳ (mỗi 5 mã) thay vì MỖI mã một lần —
-            # gửi cập nhật UI quá dồn dập qua WebSocket có thể làm nghẽn kết nối
-            # trên các phiên mạng yếu/không ổn định.
-            if done_count % 5 == 0 or done_count == total:
+            if done_count % 5 == 0 or done_count == total_for_progress:
                 res_df_live = pd.DataFrame(all_results)
                 if "Chỉ hiện mã thỏa điều kiện MUA" in filter_mode:
                     display_live = res_df_live[res_df_live['Tín hiệu'] == "🟢 MUA"]
@@ -239,9 +253,30 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
                     display_live = res_df_live
                 if not display_live.empty:
                     table_placeholder.dataframe(display_live, hide_index=True)
-
         except Exception:
-            continue
+            pass
+        return False
+
+    # ── Lượt 1: quét toàn bộ danh sách ──────────────────────────────────────
+    step = 0
+    for symbol in symbols:
+        step += 1
+        should_retry = process_symbol(symbol, step, total)
+        if should_retry:
+            connection_error_symbols.append(symbol)
+
+    # ── Lượt 2: nghỉ một chút rồi thử lại các mã bị lỗi kết nối ─────────────
+    # (lỗi ConnectionError từ VCI thường chỉ là chặn/giới hạn tạm thời, nên
+    # nghỉ ~20 giây cho hạ nhiệt trước khi thử lại thường sẽ thành công hơn)
+    if connection_error_symbols:
+        st.warning(f"⏸️ Có {len(connection_error_symbols)} mã bị lỗi kết nối ở lượt 1 "
+                   f"({', '.join(connection_error_symbols[:10])}{'...' if len(connection_error_symbols) > 10 else ''}). "
+                   f"Đang nghỉ 20 giây rồi thử lại...")
+        time.sleep(20)
+        retry_total = total + len(connection_error_symbols)
+        for symbol in connection_error_symbols:
+            step += 1
+            process_symbol(symbol, step, retry_total)
 
     progress_bar.empty()
 
