@@ -136,10 +136,10 @@ def calculate_indicators(df, length=14):
     return df
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
-def fetch_one_stock(symbol, start_date, end_date):
-    """Cache TỪNG mã riêng lẻ (thay vì cả batch) để bấm quét lại không phải
-    tải lại toàn bộ 150 mã nếu đã có mã nào đó còn hạn cache.
+def fetch_one_stock_raw(symbol, start_date, end_date):
+    """Gọi API thật, KHÔNG cache. Hàm này được chạy trong luồng nền (để enforce
+    timeout cứng), nên KHÔNG được đụng tới st.cache_data hay bất kỳ API nào của
+    Streamlit — chỉ thuần logic dữ liệu, an toàn khi chạy ngoài luồng chính.
     random_agent=True: đổi User-Agent ngẫu nhiên mỗi lần gọi, giúp đỡ giống
     hành vi bot hơn một chút trước hệ thống chống scraping của VCI."""
     df = Quote(symbol=symbol, source='VCI', random_agent=True).history(
@@ -153,6 +153,31 @@ def fetch_one_stock(symbol, start_date, end_date):
     if 'close' not in df.columns:
         return None
     return df[['close']].copy()
+
+
+def get_cache_key(symbol, start_date, end_date):
+    return f"stockcache:{symbol}:{start_date}:{end_date}"
+
+
+def get_cached_stock(symbol, start_date, end_date):
+    """Cache TỰ QUẢN LÝ qua st.session_state (không dùng st.cache_data), vì
+    st.cache_data có thể gây treo nếu bị gọi từ một luồng không phải luồng
+    chính — điều mà cơ chế timeout cứng bên dưới buộc phải làm.
+    Chỉ nên gọi hàm này từ LUỒNG CHÍNH của Streamlit."""
+    if "stock_cache" not in st.session_state:
+        st.session_state["stock_cache"] = {}
+    key = get_cache_key(symbol, start_date, end_date)
+    entry = st.session_state["stock_cache"].get(key)
+    if entry is not None:
+        cached_time, df = entry
+        if time.time() - cached_time < 1800:  # TTL 30 phút, giống bản cũ
+            return df
+    return "__MISS__"
+
+
+def set_cached_stock(symbol, start_date, end_date, df):
+    key = get_cache_key(symbol, start_date, end_date)
+    st.session_state["stock_cache"][key] = (time.time(), df)
 
 
 def is_connection_error(err_msg: str) -> bool:
@@ -215,8 +240,14 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
     hard_timeout_executor = ThreadPoolExecutor(max_workers=1)
 
     def fetch_with_hard_timeout(symbol, start_date, end_date):
-        fut = hard_timeout_executor.submit(fetch_one_stock, symbol, start_date, end_date)
-        return fut.result(timeout=HARD_TIMEOUT_SEC)
+        cached = get_cached_stock(symbol, start_date, end_date)  # đọc cache ở LUỒNG CHÍNH
+        if cached != "__MISS__":
+            return cached
+        # Chỉ hàm THUẦN (không đụng st.cache_data) mới chạy trong luồng nền
+        fut = hard_timeout_executor.submit(fetch_one_stock_raw, symbol, start_date, end_date)
+        df = fut.result(timeout=HARD_TIMEOUT_SEC)
+        set_cached_stock(symbol, start_date, end_date, df)  # ghi cache ở LUỒNG CHÍNH
+        return df
 
     def process_symbol(symbol, done_count, total_for_progress):
         """Tải + tính chỉ báo cho 1 mã. Trả về True nếu nên đưa vào hàng đợi thử lại."""
@@ -307,9 +338,10 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
             process_symbol(symbol, step, retry_total)
 
     progress_bar.empty()
+    hard_timeout_executor.shutdown(wait=False)  # không đợi các luồng bị bỏ cuộc (nếu có) thoát hẳn
 
     if fetch_errors:
-        with st.expander(f"⚠️ Chi tiết lỗi khi tải dữ liệu ({len(fetch_errors)}/{len(symbols)} mã lỗi — bấm để xem)"):
+        with st.expander(f"⚠️ Chi tiết lỗi khi tải dữ liệu ({len(fetch_errors)}/{len(scan_symbols)} mã lỗi — bấm để xem)"):
             for err in fetch_errors:
                 st.write(err)
 
