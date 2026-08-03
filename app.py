@@ -137,6 +137,26 @@ def fetch_one_stock(symbol, start_date, end_date):
     return df[['close']].copy()
 
 
+if st.button("🔍 Chẩn đoán: thử tải riêng 1 mã (APH)"):
+    import traceback
+    test_symbol = "APH"
+    vn_now = datetime.now(ZoneInfo("Asia/Ho_Chi_Minh"))
+    end_date = (vn_now + timedelta(days=1)).strftime('%Y-%m-%d')
+    start_date = (vn_now - timedelta(days=int(NEEDED_BARS * 1.6))).strftime('%Y-%m-%d')
+    st.write(f"Đang gọi `Quote(symbol='{test_symbol}', source='VCI').history(start='{start_date}', end='{end_date}')` ...")
+    t0 = time.monotonic()
+    try:
+        df_test = Quote(symbol=test_symbol, source='VCI').history(start=start_date, end=end_date, interval='1D')
+        elapsed = time.monotonic() - t0
+        st.success(f"✅ Thành công sau {elapsed:.1f} giây. Số dòng dữ liệu: {len(df_test) if df_test is not None else 0}")
+        if df_test is not None:
+            st.dataframe(df_test.tail(5))
+    except Exception as e:
+        elapsed = time.monotonic() - t0
+        st.error(f"❌ Lỗi sau {elapsed:.1f} giây: {e}")
+        with st.expander("Xem traceback đầy đủ"):
+            st.code(traceback.format_exc())
+
 if st.button("🚀 Bắt đầu quét dữ liệu"):
     st.info(f"⏳ Đang quét tuần tự {len(symbols)} mã (giãn cách {MIN_INTERVAL_SEC}s/mã theo giới hạn "
             f"tốc độ của vnstock miễn phí, ước tính {len(symbols)*MIN_INTERVAL_SEC/60:.0f} phút). "
