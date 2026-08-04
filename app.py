@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
-from vnstock import Quote
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import plotly.graph_objects as go
@@ -63,23 +62,18 @@ skip_input = st.sidebar.text_input(
 skip_symbols = {s.strip().upper() for s in skip_input.split(",") if s.strip()}
 
 # ── Cấu hình quét ────────────────────────────────────────────────────────
-# LƯU Ý: quét TUẦN TỰ (không dùng đa luồng). Đã kiểm tra: vnstock có một
-# dependency ẩn tên "vnai" (theo dõi lượt gọi hàm + hiển thị nội dung
-# quảng cáo khi khởi tạo lần đầu). Cơ chế khởi tạo lần đầu của nó dùng một
-# khóa (lock) dùng chung toàn cục, và bên trong có gọi mạng tới server
-# quảng cáo/đăng ký thiết bị của vnstock (khác với server dữ liệu VCI).
-# Nếu nhiều luồng cùng gọi Quote().history() lần đầu tiên GẦN NHƯ ĐỒNG THỜI,
-# tất cả sẽ cùng xếp hàng chờ chung 1 khóa đó -> có thể gây treo toàn bộ app
-# ngay từ giây đầu tiên nếu lệnh gọi mạng đó bị chậm/treo. Vì giới hạn tốc
-# độ ~20 request/phút của vnstock miễn phí khiến chạy song song vốn không
-# lợi nhiều về tổng thời gian, quét tuần tự là lựa chọn an toàn hơn nhiều.
+# LƯU Ý: quét TUẦN TỰ, gọi THẲNG API gốc của VCI bằng requests (xem
+# fetch_one_stock_raw phía trên), KHÔNG qua thư viện vnstock nữa. Lý do:
+# đã xác nhận qua log thực tế trên Streamlit Cloud rằng vnstock tự áp giới
+# hạn cứng 20 request/phút cho gói Khách (Guest) — đây là giới hạn phía
+# CLIENT trong thư viện Python (qua dependency "vnai"), không phải do
+# server VCI chặn. Gọi thẳng endpoint sẽ né được giới hạn giả này, nhưng
+# vẫn giữ giãn cách hợp lý để tôn trọng server thật của VCI.
 REQUEST_TIMEOUT = 15     # giây, timeout cho mỗi request (áp qua requests.Session ở trên)
 HARD_TIMEOUT_SEC = 20    # giây, timeout CỨNG cho mỗi mã (kể cả nếu bị treo thật sự,
                          # không chỉ báo lỗi bình thường) — quá thời gian sẽ tự bỏ qua
-MIN_INTERVAL_SEC = 5.0   # tăng giãn cách (đã xác nhận qua chẩn đoán: VCI trả ConnectionError
-                         # sau vài giây cho IP máy chủ Streamlit Cloud — khả năng là giới hạn
-                         # tốc độ/chống bot của VCI, không phải lỗi code) — giãn rộng hơn để
-                         # giảm khả năng bị coi là truy cập bất thường
+MIN_INTERVAL_SEC = 1.5   # đã bỏ giới hạn giả 20 req/phút của vnai nên có thể giãn cách
+                         # hẹp hơn nhiều — vẫn giữ >1s để tôn trọng server VCI thật
 NEEDED_BARS = 300        # đủ cho SMA 234 + tail 60, không cần tải 3 năm dữ liệu
 
 
@@ -136,23 +130,58 @@ def calculate_indicators(df, length=14):
     return df
 
 
+VCI_CHART_URL = "https://trading.vietcap.com.vn/api/chart/OHLCChart/gap-chart"
+VCI_HEADERS = {
+    "Accept": "application/json, text/plain, */*",
+    "Content-Type": "application/json",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Referer": "https://trading.vietcap.com.vn/",
+    "Origin": "https://trading.vietcap.com.vn/",
+}
+
+
 def fetch_one_stock_raw(symbol, start_date, end_date):
-    """Gọi API thật, KHÔNG cache. Hàm này được chạy trong luồng nền (để enforce
-    timeout cứng), nên KHÔNG được đụng tới st.cache_data hay bất kỳ API nào của
-    Streamlit — chỉ thuần logic dữ liệu, an toàn khi chạy ngoài luồng chính.
-    random_agent=True: đổi User-Agent ngẫu nhiên mỗi lần gọi, giúp đỡ giống
-    hành vi bot hơn một chút trước hệ thống chống scraping của VCI."""
-    df = Quote(symbol=symbol, source='VCI', random_agent=True).history(
-        start=start_date, end=end_date, interval='1D'
-    )
-    if df is None or df.empty:
+    """Gọi THẲNG API gốc của VCI bằng requests, KHÔNG qua thư viện vnstock.
+    Lý do: vnstock bọc mọi lệnh gọi qua thư viện 'vnai', tự áp giới hạn
+    20 request/phút cho gói Khách (Guest) — đây là giới hạn phía CLIENT
+    (trong chính thư viện Python), không phải do server VCI chặn. Gọi thẳng
+    endpoint mà vnstock dùng bên trong sẽ né được giới hạn giả này.
+    Lưu ý: đây là endpoint nội bộ không chính thức của VCI, có thể thay đổi
+    bất kỳ lúc nào mà không báo trước.
+    Hàm này chạy trong luồng nền (để enforce timeout cứng), nên KHÔNG được
+    đụng tới st.cache_data hay bất kỳ API nào của Streamlit."""
+    end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+    start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+    end_stamp = int(end_dt.timestamp())
+    business_days = pd.bdate_range(start=start_dt, end=end_dt)
+    count_back = len(business_days) + 1
+
+    payload = {
+        "timeFrame": "ONE_DAY",
+        "symbols": [symbol],
+        "to": end_stamp,
+        "countBack": count_back,
+    }
+    resp = requests.post(VCI_CHART_URL, headers=VCI_HEADERS, json=payload, timeout=15)
+    resp.raise_for_status()
+    data = resp.json()
+    if isinstance(data, dict) and "data" in data:
+        data = data["data"]
+    if not data:
         return None
-    df = df.rename(columns={'time': 'date'})
-    df['date'] = pd.to_datetime(df['date'])
-    df = df.set_index('date').sort_index()
-    if 'close' not in df.columns:
+
+    symbol_data = data[0]
+    if "t" not in symbol_data or not symbol_data["t"]:
         return None
-    return df[['close']].copy()
+
+    df = pd.DataFrame({
+        "date": pd.to_datetime(symbol_data["t"], unit="s"),
+        "close": symbol_data["c"],
+    })
+    df = df.set_index("date").sort_index()
+    return df[["close"]]
+
 
 
 def get_cache_key(symbol, start_date, end_date):
@@ -187,16 +216,16 @@ def is_connection_error(err_msg: str) -> bool:
     return any(k.lower() in err_msg.lower() for k in keywords)
 
 
-if st.button("🔍 Chẩn đoán: thử tải riêng 1 mã (APH)"):
+if st.button("🔍 Chẩn đoán: thử tải riêng 1 mã (APH) qua API trực tiếp"):
     import traceback
     test_symbol = "APH"
     vn_now = datetime.now(ZoneInfo("Asia/Ho_Chi_Minh"))
     end_date = (vn_now + timedelta(days=1)).strftime('%Y-%m-%d')
     start_date = (vn_now - timedelta(days=int(NEEDED_BARS * 1.6))).strftime('%Y-%m-%d')
-    st.write(f"Đang gọi `Quote(symbol='{test_symbol}', source='VCI').history(start='{start_date}', end='{end_date}')` ...")
+    st.write(f"Đang gọi thẳng API VCI cho mã `{test_symbol}` (start='{start_date}', end='{end_date}') ...")
     t0 = time.monotonic()
     try:
-        df_test = Quote(symbol=test_symbol, source='VCI').history(start=start_date, end=end_date, interval='1D')
+        df_test = fetch_one_stock_raw(test_symbol, start_date, end_date)
         elapsed = time.monotonic() - t0
         st.success(f"✅ Thành công sau {elapsed:.1f} giây. Số dòng dữ liệu: {len(df_test) if df_test is not None else 0}")
         if df_test is not None:
@@ -233,11 +262,12 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
 
     total = len(scan_symbols)
 
-    # Một luồng nền DUY NHẤT dùng cho toàn bộ lượt quét (luôn tuần tự — chỉ 1
-    # tác vụ chạy tại một thời điểm, không tái diễn vấn đề "vnai" đã gặp khi
-    # chạy đa luồng thật sự). Nếu 1 lệnh gọi vượt quá HARD_TIMEOUT_SEC, ta bỏ
-    # cuộc chờ và coi như lỗi, không để cả app treo vô thời hạn nữa.
-    hard_timeout_executor = ThreadPoolExecutor(max_workers=1)
+    # Dùng vài luồng dự phòng (không phải chạy song song thật sự — ta vẫn submit
+    # tuần tự từng mã một). Lý do cần hơn 1 luồng: nếu vnstock/vnai tự chờ nội bộ
+    # khi bị rate-limit (có thể tới 50-60s) và ta đã bỏ cuộc chờ sau HARD_TIMEOUT_SEC,
+    # luồng đó vẫn bận cho tới khi xong — nếu chỉ có 1 luồng, mã tiếp theo sẽ phải
+    # xếp hàng chờ luồng cũ giải phóng, gây cảm giác "đơ" y hệt bị treo thật.
+    hard_timeout_executor = ThreadPoolExecutor(max_workers=4)
 
     def fetch_with_hard_timeout(symbol, start_date, end_date):
         cached = get_cached_stock(symbol, start_date, end_date)  # đọc cache ở LUỒNG CHÍNH
@@ -248,6 +278,10 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
         df = fut.result(timeout=HARD_TIMEOUT_SEC)
         set_cached_stock(symbol, start_date, end_date, df)  # ghi cache ở LUỒNG CHÍNH
         return df
+
+    def is_rate_limit_error(err_msg: str) -> bool:
+        keywords = ["RateLimitExceeded", "GIỚI HẠN API", "rate limit", "20/20"]
+        return any(k.lower() in err_msg.lower() for k in keywords)
 
     def process_symbol(symbol, done_count, total_for_progress):
         """Tải + tính chỉ báo cho 1 mã. Trả về True nếu nên đưa vào hàng đợi thử lại."""
@@ -260,10 +294,21 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
         except Exception as e:
             df, err = None, str(e)
 
-        elapsed = time.monotonic() - t0
-        remaining_wait = MIN_INTERVAL_SEC - elapsed
-        if remaining_wait > 0:
-            time.sleep(remaining_wait)
+        if err and is_rate_limit_error(err):
+            # Đã chạm giới hạn 20 request/phút của vnstock (gói Khách/Guest).
+            # Nghỉ hẳn 65 giây để khung 1 phút được reset, thay vì chỉ giãn
+            # cách bình thường rồi lại dính tiếp ngay lập tức.
+            progress_bar.progress(
+                min(done_count / total_for_progress, 1.0),
+                text=f"⏸️ Đã chạm giới hạn 20 request/phút của vnstock. Nghỉ 65 giây cho reset "
+                     f"(mã {symbol})..."
+            )
+            time.sleep(65)
+        else:
+            elapsed = time.monotonic() - t0
+            remaining_wait = MIN_INTERVAL_SEC - elapsed
+            if remaining_wait > 0:
+                time.sleep(remaining_wait)
 
         progress_bar.progress(
             min(done_count / total_for_progress, 1.0),
@@ -272,7 +317,7 @@ if st.button("🚀 Bắt đầu quét dữ liệu"):
 
         if err:
             fetch_errors.append(f"{symbol}: {err}")
-            return is_connection_error(err)
+            return is_connection_error(err) or is_rate_limit_error(err)
         if df is None or df.dropna(subset=['close']).shape[0] < 240:
             return False
 
