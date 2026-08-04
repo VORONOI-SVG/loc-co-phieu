@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
+from vnstock import Quote
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import plotly.graph_objects as go
@@ -62,18 +63,17 @@ skip_input = st.sidebar.text_input(
 skip_symbols = {s.strip().upper() for s in skip_input.split(",") if s.strip()}
 
 # ── Cấu hình quét ────────────────────────────────────────────────────────
-# LƯU Ý: quét TUẦN TỰ, gọi THẲNG API gốc của VCI bằng requests (xem
-# fetch_one_stock_raw phía trên), KHÔNG qua thư viện vnstock nữa. Lý do:
-# đã xác nhận qua log thực tế trên Streamlit Cloud rằng vnstock tự áp giới
-# hạn cứng 20 request/phút cho gói Khách (Guest) — đây là giới hạn phía
-# CLIENT trong thư viện Python (qua dependency "vnai"), không phải do
-# server VCI chặn. Gọi thẳng endpoint sẽ né được giới hạn giả này, nhưng
-# vẫn giữ giãn cách hợp lý để tôn trọng server thật của VCI.
+# LƯU Ý: đã thử gọi thẳng API gốc của VCI bằng requests để né giới hạn
+# 20 request/phút của vnstock (thư viện "vnai"), nhưng bị chính VCI chặn
+# thẳng (403 Forbidden) vì hệ thống chống bot của họ không chấp nhận request
+# thiếu các đặc điểm "giống trình duyệt thật" mà vnstock xử lý được. Nên đã
+# QUAY LẠI dùng vnstock, và chấp nhận tôn trọng đúng giới hạn 20 request/phút
+# thay vì cố né — né không thành công còn dễ bị chặn nặng hơn.
 REQUEST_TIMEOUT = 15     # giây, timeout cho mỗi request (áp qua requests.Session ở trên)
 HARD_TIMEOUT_SEC = 20    # giây, timeout CỨNG cho mỗi mã (kể cả nếu bị treo thật sự,
                          # không chỉ báo lỗi bình thường) — quá thời gian sẽ tự bỏ qua
-MIN_INTERVAL_SEC = 1.5   # đã bỏ giới hạn giả 20 req/phút của vnai nên có thể giãn cách
-                         # hẹp hơn nhiều — vẫn giữ >1s để tôn trọng server VCI thật
+MIN_INTERVAL_SEC = 3.2   # ~18.75 request/phút — dưới ngưỡng 20/phút của vnstock,
+                         # chừa khoảng đệm an toàn cho các lần gọi khác (vd nút chẩn đoán)
 NEEDED_BARS = 300        # đủ cho SMA 234 + tail 60, không cần tải 3 năm dữ liệu
 
 
@@ -130,57 +130,27 @@ def calculate_indicators(df, length=14):
     return df
 
 
-VCI_CHART_URL = "https://trading.vietcap.com.vn/api/chart/OHLCChart/gap-chart"
-VCI_HEADERS = {
-    "Accept": "application/json, text/plain, */*",
-    "Content-Type": "application/json",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Referer": "https://trading.vietcap.com.vn/",
-    "Origin": "https://trading.vietcap.com.vn/",
-}
-
-
 def fetch_one_stock_raw(symbol, start_date, end_date):
-    """Gọi THẲNG API gốc của VCI bằng requests, KHÔNG qua thư viện vnstock.
-    Lý do: vnstock bọc mọi lệnh gọi qua thư viện 'vnai', tự áp giới hạn
-    20 request/phút cho gói Khách (Guest) — đây là giới hạn phía CLIENT
-    (trong chính thư viện Python), không phải do server VCI chặn. Gọi thẳng
-    endpoint mà vnstock dùng bên trong sẽ né được giới hạn giả này.
-    Lưu ý: đây là endpoint nội bộ không chính thức của VCI, có thể thay đổi
-    bất kỳ lúc nào mà không báo trước.
+    """Gọi qua vnstock (Quote). Đã thử gọi thẳng API gốc của VCI bằng requests
+    để né giới hạn 20 request/phút của vnstock, nhưng bị chính VCI chặn thẳng
+    (403 Forbidden — hệ thống chống bot của họ không chấp nhận request không
+    đủ 'giống trình duyệt thật'). Nên quay lại dùng vnstock — thư viện này xử
+    lý được phần chống bot đó — và tôn trọng đúng giới hạn 20 request/phút
+    thay vì cố né.
+    random_agent=True: đổi User-Agent ngẫu nhiên mỗi lần gọi.
     Hàm này chạy trong luồng nền (để enforce timeout cứng), nên KHÔNG được
     đụng tới st.cache_data hay bất kỳ API nào của Streamlit."""
-    end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
-    start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-    end_stamp = int(end_dt.timestamp())
-    business_days = pd.bdate_range(start=start_dt, end=end_dt)
-    count_back = len(business_days) + 1
-
-    payload = {
-        "timeFrame": "ONE_DAY",
-        "symbols": [symbol],
-        "to": end_stamp,
-        "countBack": count_back,
-    }
-    resp = requests.post(VCI_CHART_URL, headers=VCI_HEADERS, json=payload, timeout=15)
-    resp.raise_for_status()
-    data = resp.json()
-    if isinstance(data, dict) and "data" in data:
-        data = data["data"]
-    if not data:
+    df = Quote(symbol=symbol, source='VCI', random_agent=True).history(
+        start=start_date, end=end_date, interval='1D'
+    )
+    if df is None or df.empty:
         return None
-
-    symbol_data = data[0]
-    if "t" not in symbol_data or not symbol_data["t"]:
+    df = df.rename(columns={'time': 'date'})
+    df['date'] = pd.to_datetime(df['date'])
+    df = df.set_index('date').sort_index()
+    if 'close' not in df.columns:
         return None
-
-    df = pd.DataFrame({
-        "date": pd.to_datetime(symbol_data["t"], unit="s"),
-        "close": symbol_data["c"],
-    })
-    df = df.set_index("date").sort_index()
-    return df[["close"]]
+    return df[['close']].copy()
 
 
 
@@ -216,13 +186,13 @@ def is_connection_error(err_msg: str) -> bool:
     return any(k.lower() in err_msg.lower() for k in keywords)
 
 
-if st.button("🔍 Chẩn đoán: thử tải riêng 1 mã (APH) qua API trực tiếp"):
+if st.button("🔍 Chẩn đoán: thử tải riêng 1 mã (APH) qua vnstock"):
     import traceback
     test_symbol = "APH"
     vn_now = datetime.now(ZoneInfo("Asia/Ho_Chi_Minh"))
     end_date = (vn_now + timedelta(days=1)).strftime('%Y-%m-%d')
     start_date = (vn_now - timedelta(days=int(NEEDED_BARS * 1.6))).strftime('%Y-%m-%d')
-    st.write(f"Đang gọi thẳng API VCI cho mã `{test_symbol}` (start='{start_date}', end='{end_date}') ...")
+    st.write(f"Đang gọi vnstock (Quote) cho mã `{test_symbol}` (start='{start_date}', end='{end_date}') ...")
     t0 = time.monotonic()
     try:
         df_test = fetch_one_stock_raw(test_symbol, start_date, end_date)
